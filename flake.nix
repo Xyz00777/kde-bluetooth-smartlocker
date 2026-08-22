@@ -1,0 +1,123 @@
+{
+  description = "Lock-only Bluetooth presence daemon for KDE Plasma";
+
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+
+  outputs = { self, nixpkgs }:
+    let
+      forAllSystems = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ];
+    in {
+      packages = forAllSystems (system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in {
+          default = pkgs.stdenv.mkDerivation {
+            pname = "kde-bluetooth-smartlocker";
+            version = "0.1.0";
+            src = self;
+            nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.qt6.wrapQtAppsHook ];
+            buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
+            cmakeFlags = [ "-DBUILD_TESTING=ON" ];
+            doCheck = true;
+            checkPhase = ''
+              export QML_IMPORT_PATH="${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml"
+              cd "$NIX_BUILD_TOP/$sourceRoot"
+              qmllint plasmoid/contents/ui/main.qml plasmoid/contents/ui/DevicePolicyRow.qml || true
+              cd "$NIX_BUILD_TOP/$sourceRoot/build"
+              ctest --output-on-failure
+            '';
+          };
+        });
+
+      devShells = forAllSystems (system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in {
+          default = pkgs.mkShell {
+            packages = [
+              pkgs.cmake
+              pkgs.gcc
+              pkgs.ninja
+              pkgs.qt6.qtbase
+              pkgs.qt6.qtdeclarative
+              pkgs.qt6.qttools
+              pkgs.kdePackages.plasma-sdk
+              pkgs.kdePackages.libplasma
+            ];
+            # NOTE: qmllint cannot auto-discover QML import paths inside `nix develop`
+            # (nixpkgs issue #31725). The explicit QML_IMPORT_PATH below is the workaround.
+            # Remove this hook when that issue is resolved upstream.
+            shellHook = ''
+              export QML_IMPORT_PATH="${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml"
+              export QT_PLUGIN_PATH="${pkgs.qt6.qtbase}/lib/qt-6/plugins"
+            '';
+          };
+        });
+
+      nixosModules.default = { config, lib, pkgs, ... }:
+        let
+          cfg = config.services.kdeBluetoothSmartlocker;
+        in {
+          options.services.kdeBluetoothSmartlocker = {
+            enable = lib.mkEnableOption "the KDE Bluetooth SmartLocker user service";
+            package = lib.mkOption {
+              type = lib.types.package;
+              default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+            };
+            devices = lib.mkOption {
+              type = lib.types.listOf lib.types.str;
+              default = [];
+              description = "BlueZ D-Bus device object paths watched by the service.";
+            };
+            awaySeconds = lib.mkOption {
+              type = lib.types.positive;
+              default = 30;
+              description = "Absence duration before the daemon requests a lock.";
+            };
+            snoozeSeconds = lib.mkOption {
+              type = lib.types.positive;
+              default = 30;
+              description = "Maximum daemon snooze duration.";
+            };
+            resumeGraceSeconds = lib.mkOption {
+              type = lib.types.positive;
+              default = 30;
+              description = "Grace duration after resume before locking.";
+            };
+            minimumPresent = lib.mkOption {
+              type = lib.types.positive;
+              default = 1;
+              description = "Number of configured devices that must be present.";
+            };
+            rssiThreshold = lib.mkOption {
+              type = lib.types.int;
+              default = -70;
+              description = "Per-device RSSI threshold in dBm.";
+            };
+            rssiHysteresis = lib.mkOption {
+              type = lib.types.positive;
+              default = 5;
+              description = "RSSI hysteresis in dB.";
+            };
+            rssiSamples = lib.mkOption {
+              type = lib.types.positive;
+              default = 3;
+              description = "RSSI averaging window size.";
+            };
+            prelockNotify = lib.mkOption {
+              type = lib.types.bool;
+              default = false;
+              description = "Send an informational notification when the away countdown starts.";
+            };
+          };
+          config = lib.mkIf cfg.enable {
+            systemd.user.services.kde-bluetooth-smartlocker = {
+              description = "KDE Bluetooth SmartLocker";
+              wantedBy = [ "graphical-session.target" ];
+              serviceConfig.ExecStart = "${cfg.package}/bin/kde-bluetooth-smartlocker --away-seconds ${toString cfg.awaySeconds} --snooze-seconds ${toString cfg.snoozeSeconds} --resume-grace-seconds ${toString cfg.resumeGraceSeconds} --minimum-present ${toString cfg.minimumPresent} --rssi-threshold ${toString cfg.rssiThreshold} --rssi-hysteresis ${toString cfg.rssiHysteresis} --rssi-samples ${toString cfg.rssiSamples} ${lib.optionalString cfg.prelockNotify "--prelock-notify"} ${lib.concatMapStringsSep " " (path: "--device ${path}") cfg.devices}";
+              serviceConfig.Restart = "on-failure";
+            };
+          };
+        };
+    };
+}

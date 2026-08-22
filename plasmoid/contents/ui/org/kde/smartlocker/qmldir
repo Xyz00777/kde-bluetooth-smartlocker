@@ -1,0 +1,2 @@
+module org.kde.smartlocker
+plugin smartlockerqml
