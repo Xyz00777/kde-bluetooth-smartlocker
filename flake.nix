@@ -1,7 +1,7 @@
 {
   description = "Lock-only Bluetooth presence daemon for KDE Plasma";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs = { self, nixpkgs }:
     let
@@ -70,22 +70,22 @@
               description = "BlueZ D-Bus device object paths watched by the service.";
             };
             awaySeconds = lib.mkOption {
-              type = lib.types.positive;
+              type = lib.types.ints.positive;
               default = 30;
               description = "Absence duration before the daemon requests a lock.";
             };
             snoozeSeconds = lib.mkOption {
-              type = lib.types.positive;
+              type = lib.types.ints.positive;
               default = 30;
               description = "Maximum daemon snooze duration.";
             };
             resumeGraceSeconds = lib.mkOption {
-              type = lib.types.positive;
+              type = lib.types.ints.positive;
               default = 30;
               description = "Grace duration after resume before locking.";
             };
             minimumPresent = lib.mkOption {
-              type = lib.types.positive;
+              type = lib.types.ints.positive;
               default = 1;
               description = "Number of configured devices that must be present.";
             };
@@ -95,12 +95,12 @@
               description = "Per-device RSSI threshold in dBm.";
             };
             rssiHysteresis = lib.mkOption {
-              type = lib.types.positive;
+              type = lib.types.ints.positive;
               default = 5;
               description = "RSSI hysteresis in dB.";
             };
             rssiSamples = lib.mkOption {
-              type = lib.types.positive;
+              type = lib.types.ints.positive;
               default = 3;
               description = "RSSI averaging window size.";
             };
