@@ -62,6 +62,9 @@
             # (nixpkgs issue #31725). The explicit QML_IMPORT_PATH below is the workaround.
             # Remove this hook when that issue is resolved upstream.
             shellHook = ''
+              # qtdeclarative 6.11.1 (nixos-unstable) moved qmlimportscanner from
+              # bin/ to libexec/; libexec is not on the mkShell PATH by default.
+              export PATH="${pkgs.qt6.qtdeclarative}/libexec:$PATH"
               export QML_IMPORT_PATH="${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml"
               export QT_PLUGIN_PATH="${pkgs.qt6.qtbase}/lib/qt-6/plugins"
             '';
