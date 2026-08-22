@@ -20,9 +20,23 @@
             cmakeFlags = [ "-DBUILD_TESTING=ON" ];
             doCheck = true;
             checkPhase = ''
-              export QML_IMPORT_PATH="${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml"
               cd "$NIX_BUILD_TOP/$sourceRoot"
-              qmllint plasmoid/contents/ui/main.qml plasmoid/contents/ui/DevicePolicyRow.qml || true
+              # qmllint cannot auto-discover QML import paths (nixpkgs issue #31725),
+              # so pass them explicitly with -I. The org.kde.smartlocker module resolves
+              # via the source qmldir, but its native plugin libsmartlockerqml.so is only
+              # built at build time (CMakeLists.txt), so qmllint cannot load it during lint.
+              # Hence "SmartLockerClient was not found" / "Unused import" / "org.kde.smartlocker"
+              # diagnostics are unavoidable and must be tolerated. We still FAIL the build on
+              # genuine unresolved imports ("Failed to import").
+              qmllint \
+                -I "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
+                -I "${pkgs.kdePackages.libplasma}/lib/qt-6/qml" \
+                plasmoid/contents/ui/main.qml \
+                plasmoid/contents/ui/DevicePolicyRow.qml \
+                | grep -v "SmartLockerClient was not found" \
+                | grep -v "Unused import" \
+                | grep -v "org.kde.smartlocker" \
+                | grep -q "Failed to import" && exit 1 || true
               cd "$NIX_BUILD_TOP/$sourceRoot/build"
               ctest --output-on-failure
             '';
