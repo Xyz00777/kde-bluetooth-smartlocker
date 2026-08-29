@@ -10,7 +10,6 @@ EnvironmentFile=-%h/.config/kde-bluetooth-smartlocker/service.conf
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=yes
-PrivateTmp=yes
 
 [Install]
 WantedBy=graphical-session.target

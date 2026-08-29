@@ -33,9 +33,14 @@ int main(int argc, char* argv[]) {
         const int value = parser.value(name).toInt(&valid);
         return valid && value > 0 ? std::optional{value} : std::nullopt;
     };
-    const auto awaySeconds = positive("away-seconds");
+    const auto nonNegative = [&parser](const QString& name) -> std::optional<int> {
+        bool valid = false;
+        const int value = parser.value(name).toInt(&valid);
+        return valid && value >= 0 ? std::optional{value} : std::nullopt;
+    };
+    const auto awaySeconds = nonNegative("away-seconds");
     const auto snoozeSeconds = positive("snooze-seconds");
-    const auto resumeGraceSeconds = positive("resume-grace-seconds");
+    const auto resumeGraceSeconds = nonNegative("resume-grace-seconds");
     const auto minimumPresent = positive("minimum-present");
     const auto rssiHysteresis = positive("rssi-hysteresis");
     const auto rssiSamples = positive("rssi-samples");
@@ -72,7 +77,7 @@ int main(int argc, char* argv[]) {
         watchedPaths, parser.isSet("prelock-notify"));
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.registerService("org.kde.SmartLocker1") || !bus.registerObject("/SmartLocker", &daemon,
-                                                                              QDBusConnection::ExportAllSlots | QDBusConnection::ExportAllSignals)) {
+                                                                              QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableSignals)) {
         return 1;
     }
     daemon.start();

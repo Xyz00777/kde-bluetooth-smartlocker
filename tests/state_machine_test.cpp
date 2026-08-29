@@ -181,6 +181,31 @@ void testRemovedDeviceStartsAwayCountdown() {
     require(machine.advanceTo(at(11)) == Action::Lock);
 }
 
+void testUnconfiguredRssiThresholdUsesDefaultAndFallsBackToConnected() {
+    StateMachine machine{StateMachineConfiguration{
+        .awayDuration = 10s,
+        .snoozeDurationCap = 30s,
+        .postResumeGrace = 30s,
+        .minimumPresentDevices = 1,
+        .devices = {DeviceConfiguration{
+            .id = DeviceId{"phone"},
+            .rssiThresholdDbm = std::nullopt,
+            .rssiHysteresisDb = 5,
+            .rssiSampleCount = 3,
+        }},
+    }};
+
+    require(machine.deviceRssiThreshold(DeviceId{"phone"}) == -70);
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = std::nullopt}, at(0));
+    require(machine.state() == MachineState::Monitoring);
+    require(machine.advanceTo(at(0)) == Action::None);
+
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(1));
+    require(machine.advanceTo(at(10)) == Action::None);
+    require(machine.advanceTo(at(11)) == Action::Lock);
+}
+
 } // namespace
 
 int main() {
@@ -194,4 +219,5 @@ int main() {
     testDisablingPresentDeviceStartsAwayCountdown();
     testChangingThresholdReevaluatesObservedRssi();
     testRemovedDeviceStartsAwayCountdown();
+    testUnconfiguredRssiThresholdUsesDefaultAndFallsBackToConnected();
 }

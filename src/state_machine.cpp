@@ -148,10 +148,10 @@ bool StateMachine::deviceEnabled(const DeviceId& id) const {
 
 int StateMachine::deviceRssiThreshold(const DeviceId& id) const {
     const auto device = deviceConfigurations_.find(id);
-    if (device == deviceConfigurations_.end() || !device->second.rssiThresholdDbm.has_value()) {
+    if (device == deviceConfigurations_.end()) {
         throw std::invalid_argument{"unknown device"};
     }
-    return *device->second.rssiThresholdDbm;
+    return device->second.rssiThresholdDbm.value_or(-70);
 }
 
 bool StateMachine::isPresent(const DeviceConfiguration& configuration, const DeviceRuntime& runtime) const {

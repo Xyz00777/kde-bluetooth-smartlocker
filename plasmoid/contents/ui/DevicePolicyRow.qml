@@ -24,6 +24,7 @@ ColumnLayout {
         Switch {
             id: enabledSwitch
             text: "Watch device"
+            enabled: root.daemonClient.state !== "unavailable"
             checked: root.daemonClient.deviceEnabled(root.path)
             Accessible.name: "Watch Bluetooth device"
             onToggled: root.daemonClient.setDeviceEnabled(root.path, checked)
@@ -39,6 +40,7 @@ ColumnLayout {
             from: -100
             to: 0
             stepSize: 1
+            enabled: root.daemonClient.state !== "unavailable"
             value: root.daemonClient.deviceRssiThreshold(root.path)
             editable: true
             Accessible.name: "RSSI threshold in dBm"

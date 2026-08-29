@@ -19,21 +19,21 @@ public:
     void start();
 
 public slots:
-    [[nodiscard]] QString State() const;
-    [[nodiscard]] QStringList Devices() const;
-    [[nodiscard]] int AwaySeconds() const;
-    [[nodiscard]] int SnoozeSeconds() const;
-    [[nodiscard]] int ResumeGraceSeconds() const;
-    [[nodiscard]] int MinimumPresent() const;
-    [[nodiscard]] bool DeviceEnabled(const QString& path) const;
-    [[nodiscard]] int DeviceRssiThreshold(const QString& path) const;
-    void SetEnabled(bool enabled);
-    bool SetDeviceEnabled(const QString& path, bool enabled);
-    bool SetDeviceRssiThreshold(const QString& path, int thresholdDbm);
-    bool Snooze(int seconds);
+    Q_SCRIPTABLE [[nodiscard]] QString State() const;
+    Q_SCRIPTABLE [[nodiscard]] QStringList Devices() const;
+    Q_SCRIPTABLE [[nodiscard]] int AwaySeconds() const;
+    Q_SCRIPTABLE [[nodiscard]] int SnoozeSeconds() const;
+    Q_SCRIPTABLE [[nodiscard]] int ResumeGraceSeconds() const;
+    Q_SCRIPTABLE [[nodiscard]] int MinimumPresent() const;
+    Q_SCRIPTABLE [[nodiscard]] bool DeviceEnabled(const QString& path) const;
+    Q_SCRIPTABLE [[nodiscard]] int DeviceRssiThreshold(const QString& path) const;
+    Q_SCRIPTABLE void SetEnabled(bool enabled);
+    Q_SCRIPTABLE bool SetDeviceEnabled(const QString& path, bool enabled);
+    Q_SCRIPTABLE bool SetDeviceRssiThreshold(const QString& path, int thresholdDbm);
+    Q_SCRIPTABLE bool Snooze(int seconds);
 
 signals:
-    void StateChanged(const QString& state);
+    Q_SCRIPTABLE void StateChanged(const QString& state);
 
 private slots:
     void onAvailabilityChanged(bool available);

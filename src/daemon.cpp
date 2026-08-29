@@ -176,8 +176,10 @@ void Daemon::publishState() {
         notification.asyncCall("Notify", "Bluetooth SmartLocker", 0U, "", "Bluetooth device away",
                                "Screen will lock after the away duration.", QStringList{}, QVariantMap{}, -1);
     }
-    previousState_ = currentState;
-    emit StateChanged(currentState);
+    if (currentState != previousState_) {
+        previousState_ = currentState;
+        emit StateChanged(currentState);
+    }
 }
 
 }

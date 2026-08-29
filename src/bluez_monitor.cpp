@@ -44,6 +44,8 @@ void BluezMonitor::enumerateDevices(const QSet<QString>& watchedPaths) {
         QDBusInterface properties{"org.bluez", path, "org.freedesktop.DBus.Properties", bus_};
         const QDBusReply<QVariantMap> reply = properties.call("GetAll", "org.bluez.Device1");
         if (!reply.isValid()) {
+            connectionStates_.insert(path, false);
+            emit deviceObserved(path, false, 0, false);
             continue;
         }
         const QVariantMap values = reply.value();
@@ -60,16 +62,26 @@ void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantM
         return;
     }
     const QString path = message.path();
+    if (!watchedPaths_.contains(path)) {
+        return;
+    }
     const auto connected = changed.constFind("Connected");
+    const auto rssi = changed.constFind("RSSI");
+    if (connected == changed.cend() && rssi == changed.cend()) {
+        return;
+    }
     if (connected != changed.cend()) {
         connectionStates_.insert(path, connected->toBool());
     }
     if (!connectionStates_.contains(path)) {
         return;
     }
-    const auto rssi = changed.constFind("RSSI");
-    emit deviceObserved(path, connectionStates_.value(path), rssi == changed.cend() ? 0 : rssi->toInt(),
-                        rssi != changed.cend());
+    const bool isConnected = connectionStates_.value(path);
+    if (rssi != changed.cend()) {
+        emit deviceObserved(path, isConnected, rssi->toInt(), true);
+    } else if (connected != changed.cend()) {
+        emit deviceObserved(path, isConnected, 0, false);
+    }
 }
 
 void BluezMonitor::onInterfacesRemoved(const QDBusObjectPath& path, const QStringList& interfaces) {
