@@ -21,6 +21,9 @@ StateMachine::StateMachine(StateMachineConfiguration configuration)
     if (configuration_.minimumPresentDevices == 0) {
         throw std::invalid_argument{"minimum present devices must be positive"};
     }
+    if (!configuration_.devices.empty() && configuration_.minimumPresentDevices > configuration_.devices.size()) {
+        throw std::invalid_argument{"minimum present devices cannot exceed configured device count"};
+    }
 
     for (const DeviceConfiguration& device : configuration_.devices) {
         if (device.rssiSampleCount == 0) {

@@ -71,6 +71,10 @@ int main(int argc, char* argv[]) {
                            static_cast<std::size_t>(*rssiSamples)});
         watchedPaths.insert(path);
     }
+    if (!devices.empty() && static_cast<std::size_t>(*minimumPresent) > devices.size()) {
+        qCCritical(smartLockerMainLog) << "minimum present devices cannot exceed configured device count";
+        return 2;
+    }
     smartlocker::Daemon daemon(
         {std::chrono::seconds{*awaySeconds}, std::chrono::seconds{*snoozeSeconds}, std::chrono::seconds{*resumeGraceSeconds},
          static_cast<std::size_t>(*minimumPresent), std::move(devices)},

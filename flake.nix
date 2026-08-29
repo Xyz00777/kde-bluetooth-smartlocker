@@ -89,7 +89,7 @@
               description = "BlueZ D-Bus device object paths watched by the service.";
             };
             awaySeconds = lib.mkOption {
-              type = lib.types.ints.positive;
+              type = lib.types.ints.unsigned;
               default = 30;
               description = "Absence duration before the daemon requests a lock.";
             };
@@ -99,7 +99,7 @@
               description = "Maximum daemon snooze duration.";
             };
             resumeGraceSeconds = lib.mkOption {
-              type = lib.types.ints.positive;
+              type = lib.types.ints.unsigned;
               default = 30;
               description = "Grace duration after resume before locking.";
             };

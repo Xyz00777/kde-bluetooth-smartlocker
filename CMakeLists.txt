@@ -45,4 +45,6 @@ if(BUILD_TESTING)
     add_test(NAME daemon-duplicate-device COMMAND kde-bluetooth-smartlocker --device /org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF
                                                         --device /org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF)
     set_tests_properties(daemon-duplicate-device PROPERTIES WILL_FAIL TRUE)
+    add_test(NAME daemon-minimum-present-exceeds-devices COMMAND kde-bluetooth-smartlocker --device /org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF --minimum-present 2)
+    set_tests_properties(daemon-minimum-present-exceeds-devices PROPERTIES WILL_FAIL TRUE)
 endif()

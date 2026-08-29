@@ -206,6 +206,27 @@ void testUnconfiguredRssiThresholdUsesDefaultAndFallsBackToConnected() {
     require(machine.advanceTo(at(11)) == Action::Lock);
 }
 
+void testMinimumPresentExceedingDevicesThrows() {
+    bool threw = false;
+    try {
+        StateMachine machine{StateMachineConfiguration{
+            .awayDuration = 10s,
+            .snoozeDurationCap = 30s,
+            .postResumeGrace = 30s,
+            .minimumPresentDevices = 2,
+            .devices = {DeviceConfiguration{
+                .id = DeviceId{"phone"},
+                .rssiThresholdDbm = -70,
+                .rssiHysteresisDb = 5,
+                .rssiSampleCount = 3,
+            }},
+        }};
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    require(threw);
+}
+
 } // namespace
 
 int main() {
@@ -220,4 +241,5 @@ int main() {
     testChangingThresholdReevaluatesObservedRssi();
     testRemovedDeviceStartsAwayCountdown();
     testUnconfiguredRssiThresholdUsesDefaultAndFallsBackToConnected();
+    testMinimumPresentExceedingDevicesThrows();
 }

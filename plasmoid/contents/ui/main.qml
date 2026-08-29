@@ -9,8 +9,8 @@ PlasmoidItem {
     property var devicePaths: []
     SmartLockerClient {
         id: client
-        Component.onCompleted: root.devicePaths = devices()
-        onStateChanged: root.devicePaths = devices()
+        Component.onCompleted: root.devicePaths = client.devices()
+        onStateChanged: root.devicePaths = client.devices()
     }
     compactRepresentation: Label { text: client.state }
     fullRepresentation: ColumnLayout {
