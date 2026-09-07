@@ -15,7 +15,8 @@ class Daemon final : public QObject {
     Q_CLASSINFO("D-Bus Interface", "org.kde.SmartLocker1")
 
 public:
-    Daemon(StateMachineConfiguration configuration, QSet<QString> watchedPaths, bool prelockNotifications, QObject* parent = nullptr);
+    Daemon(StateMachineConfiguration configuration, QSet<QString> watchedPaths, bool prelockNotifications,
+           QString lockCommand = QStringLiteral("loginctl"), QObject* parent = nullptr);
     void start();
 
 public slots:
@@ -27,13 +28,14 @@ public slots:
     Q_SCRIPTABLE [[nodiscard]] int MinimumPresent() const;
     Q_SCRIPTABLE [[nodiscard]] bool DeviceEnabled(const QString& path) const;
     Q_SCRIPTABLE [[nodiscard]] int DeviceRssiThreshold(const QString& path) const;
-    Q_SCRIPTABLE void SetEnabled(bool enabled);
+    Q_SCRIPTABLE bool SetEnabled(bool enabled);
     Q_SCRIPTABLE bool SetDeviceEnabled(const QString& path, bool enabled);
     Q_SCRIPTABLE bool SetDeviceRssiThreshold(const QString& path, int thresholdDbm);
     Q_SCRIPTABLE bool Snooze(int seconds);
 
 signals:
     Q_SCRIPTABLE void StateChanged(const QString& state);
+    Q_SCRIPTABLE void SettingsChanged();
 
 private slots:
     void onAvailabilityChanged(bool available);
@@ -41,6 +43,7 @@ private slots:
     void onPrepareForSleep(bool sleeping);
     void onLockProcessError(QProcess::ProcessError error);
     void onLockProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    void verifyLockApplied();
     void advance();
 
 private:
@@ -50,9 +53,12 @@ private:
     BluezMonitor monitor_;
     QSet<QString> watchedPaths_;
     QTimer timer_;
+    QTimer verifyTimer_;
     QProcess lockProcess_;
     QSettings settings_{"kde-bluetooth-smartlocker", "daemon"};
     bool prelockNotifications_;
+    bool started_{false};
+    QString lockCommand_;
     QString previousState_;
 };
 

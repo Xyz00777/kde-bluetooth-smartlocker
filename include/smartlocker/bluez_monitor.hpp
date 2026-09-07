@@ -33,7 +33,10 @@ private:
 
     QDBusConnection bus_;
     QMap<QString, bool> connectionStates_;
+    QMap<QString, bool> everConnected_;
+    QMap<QString, int> lastRssi_;
     QSet<QString> watchedPaths_;
+    bool started_{false};
     QTimer refreshTimer_;
     QDBusServiceWatcher serviceWatcher_;
 };

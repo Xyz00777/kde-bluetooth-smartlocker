@@ -26,6 +26,7 @@ int main(int argc, char* argv[]) {
     parser.addOption({"rssi-hysteresis", "RSSI hysteresis in dB.", "dB", "5"});
     parser.addOption({"rssi-samples", "RSSI averaging window size.", "count", "3"});
     parser.addOption({"prelock-notify", "Notify when the away countdown starts."});
+    parser.addOption({"lock-command", "Command used to lock the session.", "command", "loginctl"});
     parser.process(application);
 
     const auto positive = [&parser](const QString& name) -> std::optional<int> {
@@ -47,7 +48,7 @@ int main(int argc, char* argv[]) {
     bool rssiValid = false;
     const int rssiThreshold = parser.value("rssi-threshold").toInt(&rssiValid);
     if (!awaySeconds.has_value() || !snoozeSeconds.has_value() || !resumeGraceSeconds.has_value() || !minimumPresent.has_value()
-        || !rssiHysteresis.has_value() || !rssiSamples.has_value() || !rssiValid) {
+        || !rssiHysteresis.has_value() || !rssiSamples.has_value() || !rssiValid || rssiThreshold < -100 || rssiThreshold > 0) {
         return 2;
     }
 
@@ -78,7 +79,7 @@ int main(int argc, char* argv[]) {
     smartlocker::Daemon daemon(
         {std::chrono::seconds{*awaySeconds}, std::chrono::seconds{*snoozeSeconds}, std::chrono::seconds{*resumeGraceSeconds},
          static_cast<std::size_t>(*minimumPresent), std::move(devices)},
-        watchedPaths, parser.isSet("prelock-notify"));
+        watchedPaths, parser.isSet("prelock-notify"), parser.value("lock-command"));
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.registerService("org.kde.SmartLocker1") || !bus.registerObject("/SmartLocker", &daemon,
                                                                               QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableSignals)) {

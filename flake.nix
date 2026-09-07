@@ -32,11 +32,16 @@
                 -I "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
                 -I "${pkgs.kdePackages.libplasma}/lib/qt-6/qml" \
                 plasmoid/contents/ui/main.qml \
-                plasmoid/contents/ui/DevicePolicyRow.qml \
-                | grep -v "SmartLockerClient was not found" \
+                plasmoid/contents/ui/DevicePolicyRow.qml > qmllint.log 2>&1
+              qmllint_status=$?
+              grep -v "SmartLockerClient was not found" qmllint.log \
                 | grep -v "Unused import" \
                 | grep -v "org.kde.smartlocker" \
-                | grep -q "Failed to import" && exit 1 || true
+                > qmllint.filtered.log || true
+              if [ "$qmllint_status" -ne 0 ] || grep -q "Failed to import" qmllint.filtered.log; then
+                cat qmllint.filtered.log
+                exit 1
+              fi
               cd "$NIX_BUILD_TOP/$sourceRoot/build"
               ctest --output-on-failure
             '';
@@ -109,7 +114,7 @@
               description = "Number of configured devices that must be present.";
             };
             rssiThreshold = lib.mkOption {
-              type = lib.types.int;
+              type = lib.types.ints.between (-100) 0;
               default = -70;
               description = "Per-device RSSI threshold in dBm.";
             };
@@ -130,11 +135,23 @@
             };
           };
           config = lib.mkIf cfg.enable {
+            assertions = [
+              {
+                assertion = builtins.all (path: !builtins.match ".*[[:space:]].*" path) cfg.devices;
+                message = "kdeBluetoothSmartlocker device paths must not contain whitespace (systemd would split them): ${lib.concatMapStringsSep ", " (p: ''"${p}"'') (lib.filter (p: builtins.match ".*[[:space:]].*" p != null) cfg.devices)}";
+              }
+            ];
             systemd.user.services.kde-bluetooth-smartlocker = {
               description = "KDE Bluetooth SmartLocker";
               wantedBy = [ "graphical-session.target" ];
-              serviceConfig.ExecStart = "${cfg.package}/bin/kde-bluetooth-smartlocker --away-seconds ${toString cfg.awaySeconds} --snooze-seconds ${toString cfg.snoozeSeconds} --resume-grace-seconds ${toString cfg.resumeGraceSeconds} --minimum-present ${toString cfg.minimumPresent} --rssi-threshold ${toString cfg.rssiThreshold} --rssi-hysteresis ${toString cfg.rssiHysteresis} --rssi-samples ${toString cfg.rssiSamples} ${lib.optionalString cfg.prelockNotify "--prelock-notify"} ${lib.concatMapStringsSep " " (path: "--device ${path}") cfg.devices}";
+              unitConfig = {
+                StartLimitIntervalSec = "10min";
+                StartLimitBurst = 10;
+              };
+              serviceConfig.ExecStart = "${cfg.package}/bin/kde-bluetooth-smartlocker --lock-command ${pkgs.systemd}/bin/loginctl --away-seconds ${toString cfg.awaySeconds} --snooze-seconds ${toString cfg.snoozeSeconds} --resume-grace-seconds ${toString cfg.resumeGraceSeconds} --minimum-present ${toString cfg.minimumPresent} --rssi-threshold ${toString cfg.rssiThreshold} --rssi-hysteresis ${toString cfg.rssiHysteresis} --rssi-samples ${toString cfg.rssiSamples} ${lib.optionalString cfg.prelockNotify "--prelock-notify"} ${lib.concatMapStringsSep " " (path: "--device ${path}") cfg.devices}";
               serviceConfig.Restart = "on-failure";
+              serviceConfig.RestartSec = "2";
+              serviceConfig.NoNewPrivileges = true;
             };
           };
         };

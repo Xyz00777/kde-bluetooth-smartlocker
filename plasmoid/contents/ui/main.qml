@@ -7,10 +7,30 @@ import org.kde.smartlocker
 PlasmoidItem {
     id: root
     property var devicePaths: []
+    property int snoozeSeconds: 30
+    function updateDevicePaths() {
+        const paths = client.devices()
+        if (paths.length !== root.devicePaths.length) {
+            root.devicePaths = paths
+            return
+        }
+        for (let i = 0; i < paths.length; ++i) {
+            if (paths[i] !== root.devicePaths[i]) {
+                root.devicePaths = paths
+                return
+            }
+        }
+    }
     SmartLockerClient {
         id: client
-        Component.onCompleted: root.devicePaths = client.devices()
-        onStateChanged: root.devicePaths = client.devices()
+        Component.onCompleted: {
+            root.updateDevicePaths()
+            root.snoozeSeconds = client.snoozeSeconds()
+        }
+        onSettingsChanged: {
+            root.updateDevicePaths()
+            root.snoozeSeconds = client.snoozeSeconds()
+        }
     }
     compactRepresentation: Label { text: client.state }
     fullRepresentation: ColumnLayout {
@@ -39,9 +59,9 @@ PlasmoidItem {
             }
         }
         Button {
-            text: "Snooze 30 seconds"
+            text: "Snooze " + root.snoozeSeconds + " seconds"
             enabled: client.state !== "unavailable" && client.state !== "disabled"
-            onClicked: client.snooze(30)
+            onClicked: client.snooze(root.snoozeSeconds)
             Layout.fillWidth: true
         }
         Button {

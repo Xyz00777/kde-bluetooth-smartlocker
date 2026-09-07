@@ -66,6 +66,7 @@ public:
     void snooze(std::chrono::seconds duration, TimePoint now);
     void resume(TimePoint now);
     void observe(const DeviceId& id, DeviceObservation observation, TimePoint now);
+    void clearLocked(TimePoint now);
     [[nodiscard]] Action advanceTo(TimePoint now);
     [[nodiscard]] MachineState state() const;
     [[nodiscard]] std::chrono::seconds awayDuration() const;
@@ -94,6 +95,7 @@ private:
     bool bluetoothAvailable_{false};
     bool enabled_{true};
     bool observedAtLeastOneDevice_{false};
+    bool locked_{false};
     std::optional<TimePoint> awaySince_;
     std::optional<TimePoint> snoozedUntil_;
     std::optional<TimePoint> resumeGraceUntil_;

@@ -18,6 +18,8 @@ public:
         connect(&serviceWatcher_, &QDBusServiceWatcher::serviceUnregistered, this, &SmartLockerClient::onServiceUnregistered);
         QDBusConnection::sessionBus().connect("org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", "StateChanged", this,
                                               SLOT(onDaemonStateChanged(QString)));
+        QDBusConnection::sessionBus().connect("org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", "SettingsChanged", this,
+                                              SLOT(onDaemonSettingsChanged()));
         refresh();
     }
 
@@ -25,56 +27,83 @@ public:
 
     Q_INVOKABLE void refresh() {
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
         const QDBusReply<QString> reply = daemon.call("State");
         const QString newState = reply.isValid() ? reply.value() : QStringLiteral("unavailable");
         if (state_ != newState) {
             state_ = newState;
             emit stateChanged();
         }
+        refreshDevices();
+        emit settingsChanged();
     }
 
-    Q_INVOKABLE void setEnabled(const bool enabled) {
-        QDBusInterface{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()}.call("SetEnabled", enabled);
+    Q_INVOKABLE void refreshDevices() {
+        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
+        const QDBusReply<QStringList> reply = daemon.call("Devices");
+        if (reply.isValid()) {
+            devices_ = reply.value();
+        }
+    }
+
+    Q_INVOKABLE bool setEnabled(const bool enabled) {
+        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
+        const QDBusReply<bool> reply = daemon.call("SetEnabled", enabled);
         refresh();
+        return reply.isValid() ? reply.value() : false;
     }
 
     Q_INVOKABLE void snooze(const int seconds) {
-        QDBusInterface{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()}.call("Snooze", seconds);
+        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
+        daemon.call("Snooze", seconds);
         refresh();
+    }
+
+    Q_INVOKABLE int snoozeSeconds() {
+        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
+        const QDBusReply<int> reply = daemon.call("SnoozeSeconds");
+        return reply.isValid() ? reply.value() : 30;
     }
 
     Q_INVOKABLE bool deviceEnabled(const QString& path) {
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
         const QDBusReply<bool> reply = daemon.call("DeviceEnabled", path);
         return reply.isValid() ? reply.value() : false;
     }
 
     Q_INVOKABLE QStringList devices() {
-        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
-        const QDBusReply<QStringList> reply = daemon.call("Devices");
-        return reply.isValid() ? reply.value() : QStringList{};
+        return devices_;
     }
 
     Q_INVOKABLE void setDeviceEnabled(const QString& path, const bool enabled) {
-        QDBusInterface{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()}
-            .call("SetDeviceEnabled", path, enabled);
+        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
+        daemon.call("SetDeviceEnabled", path, enabled);
         refresh();
     }
 
     Q_INVOKABLE int deviceRssiThreshold(const QString& path) {
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
         const QDBusReply<int> reply = daemon.call("DeviceRssiThreshold", path);
         return reply.isValid() ? reply.value() : -70;
     }
 
     Q_INVOKABLE void setDeviceRssiThreshold(const QString& path, const int thresholdDbm) {
-        QDBusInterface{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()}
-            .call("SetDeviceRssiThreshold", path, thresholdDbm);
+        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
+        daemon.call("SetDeviceRssiThreshold", path, thresholdDbm);
         refresh();
     }
 
 signals:
     void stateChanged();
+    void settingsChanged();
 
 private slots:
     void onDaemonStateChanged(const QString& state) {
@@ -82,6 +111,11 @@ private slots:
             state_ = state;
             emit stateChanged();
         }
+    }
+
+    void onDaemonSettingsChanged() {
+        refreshDevices();
+        emit settingsChanged();
     }
 
     void onServiceRegistered(const QString&) {
@@ -98,6 +132,7 @@ private slots:
 private:
     QDBusServiceWatcher serviceWatcher_;
     QString state_{"unavailable"};
+    QStringList devices_{};
 };
 
 class SmartLockerPlugin final : public QQmlExtensionPlugin {

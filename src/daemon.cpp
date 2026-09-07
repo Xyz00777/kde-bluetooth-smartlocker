@@ -1,6 +1,9 @@
 #include "smartlocker/daemon.hpp"
 
+#include <QCoreApplication>
 #include <QDBusInterface>
+#include <QDBusObjectPath>
+#include <QDBusReply>
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(smartLockerLog, "org.kde.smartlocker")
@@ -11,6 +14,24 @@ namespace {
 
 TimePoint now() {
     return std::chrono::steady_clock::now();
+}
+
+bool sessionLocked() {
+    QDBusInterface login1{"org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
+                          QDBusConnection::systemBus()};
+    login1.setTimeout(2000);
+    const QDBusReply<QDBusObjectPath> reply = login1.call("GetSessionByPID", static_cast<quint32>(QCoreApplication::applicationPid()));
+    if (!reply.isValid()) {
+        return false;
+    }
+    QDBusInterface session{"org.freedesktop.login1", reply.value().path(), "org.freedesktop.login1.Session",
+                           QDBusConnection::systemBus()};
+    session.setTimeout(2000);
+    const QString state = session.property("State").toString();
+    // logind reports "locking" during the transition and "locked" while the screen
+    // is locked; mutating calls must be rejected in both, since the plasmoid is
+    // unreachable behind the lock screen anyway.
+    return state == "locking" || state == "locked";
 }
 
 QString stateName(const MachineState state) {
@@ -33,30 +54,53 @@ QString stateName(const MachineState state) {
     return "error";
 }
 
+QString deviceSettingsKey(const QString& path, const char* name) {
+    QString safePath = path;
+    safePath.replace('/', '_');
+    return QStringLiteral("devices/%1/%2").arg(safePath, QString::fromLatin1(name));
 }
 
-Daemon::Daemon(StateMachineConfiguration configuration, QSet<QString> watchedPaths, const bool prelockNotifications, QObject* parent)
+}
+
+Daemon::Daemon(StateMachineConfiguration configuration, QSet<QString> watchedPaths, const bool prelockNotifications,
+               QString lockCommand, QObject* parent)
     : QObject(parent), machine_(std::move(configuration)), monitor_(this), watchedPaths_(std::move(watchedPaths)),
-      prelockNotifications_(prelockNotifications) {
+      prelockNotifications_(prelockNotifications), lockCommand_(std::move(lockCommand)) {
     machine_.setEnabled(settings_.value("enabled", true).toBool(), now());
     for (const QString& path : watchedPaths_) {
-        machine_.setDeviceEnabled(DeviceId{path.toStdString()}, settings_.value(QStringLiteral("devices/%1/enabled").arg(path), true).toBool(), now());
-        const int threshold = settings_.value(QStringLiteral("devices/%1/rssiThreshold").arg(path), machine_.deviceRssiThreshold(DeviceId{path.toStdString()})).toInt();
+        machine_.setDeviceEnabled(DeviceId{path.toStdString()}, settings_.value(deviceSettingsKey(path, "enabled"), true).toBool(), now());
+        int threshold = settings_.value(deviceSettingsKey(path, "rssiThreshold"), machine_.deviceRssiThreshold(DeviceId{path.toStdString()})).toInt();
+        if (threshold < -100 || threshold > 0) {
+            qCWarning(smartLockerLog) << "ignoring out-of-range persisted RSSI threshold for" << path << ":" << threshold;
+            threshold = machine_.deviceRssiThreshold(DeviceId{path.toStdString()});
+            settings_.setValue(deviceSettingsKey(path, "rssiThreshold"), threshold);
+        }
         machine_.setDeviceRssiThreshold(DeviceId{path.toStdString()}, threshold, now());
     }
     timer_.setInterval(1000);
     connect(&timer_, &QTimer::timeout, this, &Daemon::advance);
+    verifyTimer_.setInterval(3000);
+    connect(&verifyTimer_, &QTimer::timeout, this, &Daemon::verifyLockApplied);
     connect(&monitor_, &BluezMonitor::availabilityChanged, this, &Daemon::onAvailabilityChanged);
     connect(&monitor_, &BluezMonitor::deviceObserved, this, &Daemon::onDeviceObserved);
     connect(&lockProcess_, &QProcess::errorOccurred, this, &Daemon::onLockProcessError);
     connect(&lockProcess_, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this, &Daemon::onLockProcessFinished);
-    QDBusConnection::systemBus().connect("org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
-                                         "PrepareForSleep", this, SLOT(onPrepareForSleep(bool)));
+    const bool connected = QDBusConnection::systemBus().connect("org.freedesktop.login1", "/org/freedesktop/login1",
+                                                                "org.freedesktop.login1.Manager", "PrepareForSleep", this,
+                                                                SLOT(onPrepareForSleep(bool)));
+    if (!connected) {
+        qCWarning(smartLockerLog) << "failed to subscribe to PrepareForSleep; resume grace will not apply";
+    }
 }
 
 void Daemon::start() {
+    if (started_) {
+        return;
+    }
+    started_ = true;
     monitor_.start(watchedPaths_);
     timer_.start();
+    verifyTimer_.start();
     publishState();
 }
 
@@ -65,7 +109,9 @@ QString Daemon::State() const {
 }
 
 QStringList Daemon::Devices() const {
-    return watchedPaths_.values();
+    QStringList devices = watchedPaths_.values();
+    devices.sort();
+    return devices;
 }
 
 int Daemon::AwaySeconds() const {
@@ -89,40 +135,59 @@ bool Daemon::DeviceEnabled(const QString& path) const {
 }
 
 int Daemon::DeviceRssiThreshold(const QString& path) const {
-    return watchedPaths_.contains(path) ? machine_.deviceRssiThreshold(DeviceId{path.toStdString()}) : 0;
+    return watchedPaths_.contains(path) ? machine_.deviceRssiThreshold(DeviceId{path.toStdString()}) : -70;
 }
 
-void Daemon::SetEnabled(const bool enabled) {
+bool Daemon::SetEnabled(const bool enabled) {
+    if (sessionLocked()) {
+        return false;
+    }
     machine_.setEnabled(enabled, now());
     settings_.setValue("enabled", enabled);
     settings_.sync();
     publishState();
+    emit SettingsChanged();
+    return true;
 }
 
 bool Daemon::SetDeviceEnabled(const QString& path, const bool enabled) {
+    if (sessionLocked()) {
+        return false;
+    }
     if (!watchedPaths_.contains(path)) {
         return false;
     }
     machine_.setDeviceEnabled(DeviceId{path.toStdString()}, enabled, now());
-    settings_.setValue(QStringLiteral("devices/%1/enabled").arg(path), enabled);
+    settings_.setValue(deviceSettingsKey(path, "enabled"), enabled);
     settings_.sync();
     publishState();
+    emit SettingsChanged();
     return true;
 }
 
 bool Daemon::SetDeviceRssiThreshold(const QString& path, const int thresholdDbm) {
+    if (sessionLocked()) {
+        return false;
+    }
     if (!watchedPaths_.contains(path)) {
         return false;
     }
+    if (thresholdDbm < -100 || thresholdDbm > 0) {
+        return false;
+    }
     machine_.setDeviceRssiThreshold(DeviceId{path.toStdString()}, thresholdDbm, now());
-    settings_.setValue(QStringLiteral("devices/%1/rssiThreshold").arg(path), thresholdDbm);
+    settings_.setValue(deviceSettingsKey(path, "rssiThreshold"), thresholdDbm);
     settings_.sync();
     publishState();
+    emit SettingsChanged();
     return true;
 }
 
 bool Daemon::Snooze(const int seconds) {
-    if (seconds <= 0) {
+    if (sessionLocked()) {
+        return false;
+    }
+    if (seconds <= 0 || seconds > machine_.snoozeDurationCap().count()) {
         return false;
     }
     machine_.snooze(std::chrono::seconds{seconds}, now());
@@ -152,20 +217,38 @@ void Daemon::onPrepareForSleep(const bool sleeping) {
 
 void Daemon::onLockProcessError(const QProcess::ProcessError error) {
     qCWarning(smartLockerLog) << "lock command failed to start" << error << lockProcess_.errorString();
+    machine_.clearLocked(now());
+    publishState();
 }
 
 void Daemon::onLockProcessFinished(const int exitCode, const QProcess::ExitStatus exitStatus) {
     if (exitStatus != QProcess::NormalExit || exitCode != 0) {
         qCWarning(smartLockerLog) << "lock command exited unsuccessfully" << exitCode << exitStatus;
+        machine_.clearLocked(now());
+        publishState();
     }
 }
 
 void Daemon::advance() {
     if (machine_.advanceTo(now()) == Action::Lock && lockProcess_.state() == QProcess::NotRunning) {
         qCInfo(smartLockerLog) << "requesting session lock";
-        lockProcess_.start("loginctl", {"lock-session"});
+        lockProcess_.start(lockCommand_, {"lock-session"});
     }
     publishState();
+}
+
+void Daemon::verifyLockApplied() {
+    if (machine_.state() != MachineState::Locked) {
+        return;
+    }
+    if (sessionLocked()) {
+        return;
+    }
+    if (lockProcess_.state() == QProcess::NotRunning) {
+        qCWarning(smartLockerLog) << "lock command succeeded but session is not locked; retrying";
+        machine_.clearLocked(now());
+        publishState();
+    }
 }
 
 void Daemon::publishState() {

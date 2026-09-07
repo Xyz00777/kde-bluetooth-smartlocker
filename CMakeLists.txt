@@ -40,6 +40,7 @@ if(BUILD_TESTING)
     add_test(NAME daemon-policy-options COMMAND kde-bluetooth-smartlocker --away-seconds 15 --minimum-present 1 --version)
     add_test(NAME daemon-zero-second-options COMMAND kde-bluetooth-smartlocker --away-seconds 0 --resume-grace-seconds 0 --version)
     add_test(NAME daemon-notification-option COMMAND kde-bluetooth-smartlocker --prelock-notify --version)
+    add_test(NAME daemon-lock-command-option COMMAND kde-bluetooth-smartlocker --lock-command /usr/bin/loginctl --version)
     add_test(NAME daemon-invalid-device COMMAND kde-bluetooth-smartlocker --device invalid)
     set_tests_properties(daemon-invalid-device PROPERTIES WILL_FAIL TRUE)
     add_test(NAME daemon-duplicate-device COMMAND kde-bluetooth-smartlocker --device /org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF

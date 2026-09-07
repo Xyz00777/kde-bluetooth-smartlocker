@@ -112,13 +112,22 @@ Action StateMachine::advanceTo(const TimePoint now) {
     if (state_ == MachineState::Snoozed || state_ == MachineState::Starting) {
         return Action::None;
     }
+    if (locked_) {
+        return Action::None;
+    }
     if (!awaySince_.has_value() || now - *awaySince_ < configuration_.awayDuration) {
         return Action::None;
     }
 
+    locked_ = true;
     state_ = MachineState::Locked;
     awaySince_.reset();
     return Action::Lock;
+}
+
+void StateMachine::clearLocked(const TimePoint now) {
+    locked_ = false;
+    updateState(now);
 }
 
 MachineState StateMachine::state() const {
@@ -186,6 +195,7 @@ void StateMachine::updateState(const TimePoint now) {
     if (!enabled_) {
         awaySince_.reset();
         snoozedUntil_.reset();
+        locked_ = false;
         state_ = MachineState::Disabled;
         return;
     }
@@ -205,7 +215,12 @@ void StateMachine::updateState(const TimePoint now) {
     }
     if (bluetoothAvailable_ && presentDeviceCount() >= configuration_.minimumPresentDevices) {
         awaySince_.reset();
+        locked_ = false;
         state_ = MachineState::Monitoring;
+        return;
+    }
+    if (locked_) {
+        state_ = MachineState::Locked;
         return;
     }
     if (!awaySince_.has_value()) {

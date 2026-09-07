@@ -1,6 +1,7 @@
 #include "smartlocker/state_machine.hpp"
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 
 using namespace std::chrono_literals;
@@ -19,11 +20,13 @@ TimePoint at(const int seconds) {
     return TimePoint{} + std::chrono::seconds{seconds};
 }
 
-void require(const bool condition) {
-    if (!condition) {
-        std::abort();
-    }
-}
+#define require(condition) \
+    do { \
+        if (!(condition)) { \
+            std::fprintf(stderr, "FAILED %s:%d: %s\n", __FILE__, __LINE__, #condition); \
+            std::abort(); \
+        } \
+    } while (false)
 
 StateMachineConfiguration configuredForOneDevice() {
     return StateMachineConfiguration{
@@ -206,6 +209,70 @@ void testUnconfiguredRssiThresholdUsesDefaultAndFallsBackToConnected() {
     require(machine.advanceTo(at(11)) == Action::Lock);
 }
 
+void testLockedStateLatchesAndDoesNotRelock() {
+    // Given: a device that becomes absent.
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(1));
+
+    // When: the away duration elapses, locking once.
+    require(machine.advanceTo(at(11)) == Action::Lock);
+    require(machine.state() == MachineState::Locked);
+
+    // Then: subsequent ticks while still absent do not re-request a lock.
+    require(machine.advanceTo(at(12)) == Action::None);
+    require(machine.advanceTo(at(60)) == Action::None);
+    require(machine.state() == MachineState::Locked);
+}
+
+void testLockedStateClearsWhenDeviceReturns() {
+    // Given: a device that locked after going absent.
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(1));
+    require(machine.advanceTo(at(11)) == Action::Lock);
+
+    // When: the device returns.
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(12));
+
+    // Then: the machine returns to monitoring and can lock again on a later absence.
+    require(machine.state() == MachineState::Monitoring);
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(13));
+    require(machine.advanceTo(at(22)) == Action::None);
+    require(machine.advanceTo(at(23)) == Action::Lock);
+}
+
+void testLockFailureRetriesAfterAwayDuration() {
+    // Given: a device that locked after going absent.
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(1));
+    require(machine.advanceTo(at(11)) == Action::Lock);
+
+    // When: the lock command fails and the daemon clears the latch.
+    machine.clearLocked(at(11));
+
+    // Then: the countdown restarts from the failure and retries after the away duration.
+    require(machine.advanceTo(at(12)) == Action::None);
+    require(machine.advanceTo(at(20)) == Action::None);
+    require(machine.advanceTo(at(21)) == Action::Lock);
+    require(machine.state() == MachineState::Locked);
+}
+
+void testSnoozeExceedingCapThrows() {
+    StateMachine machine{configuredForOneDevice()};
+    bool threw = false;
+    try {
+        machine.snooze(31s, at(0));
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    require(threw);
+}
+
 void testMinimumPresentExceedingDevicesThrows() {
     bool threw = false;
     try {
@@ -241,5 +308,9 @@ int main() {
     testChangingThresholdReevaluatesObservedRssi();
     testRemovedDeviceStartsAwayCountdown();
     testUnconfiguredRssiThresholdUsesDefaultAndFallsBackToConnected();
+    testLockedStateLatchesAndDoesNotRelock();
+    testLockedStateClearsWhenDeviceReturns();
+    testLockFailureRetriesAfterAwayDuration();
+    testSnoozeExceedingCapThrows();
     testMinimumPresentExceedingDevicesThrows();
 }

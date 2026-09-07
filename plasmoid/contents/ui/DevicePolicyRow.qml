@@ -47,4 +47,15 @@ ColumnLayout {
             onValueModified: root.daemonClient.setDeviceRssiThreshold(root.path, value)
         }
     }
+
+    Connections {
+        target: root.daemonClient
+        function onSettingsChanged() {
+            enabledSwitch.checked = root.daemonClient.deviceEnabled(root.path)
+            const threshold = root.daemonClient.deviceRssiThreshold(root.path)
+            if (thresholdSpinBox.value !== threshold) {
+                thresholdSpinBox.value = threshold
+            }
+        }
+    }
 }
