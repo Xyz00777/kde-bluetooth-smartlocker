@@ -1,0 +1,14 @@
+#!/bin/sh
+# Pre-commit hook: fails the commit when the application version differs
+# across CMakeLists.txt, flake.nix, src/main.cpp, and plasmoid/metadata.json.
+# Activated by setting core.hooksPath to this repository's .githooks directory
+# (see README, "Development").
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null || exit 1)
+cd "$repo_root" || exit 1
+
+if ! sh scripts/check-version.sh; then
+    echo "pre-commit: aborting commit due to version inconsistency" >&2
+    exit 1
+fi
+
+exit 0
