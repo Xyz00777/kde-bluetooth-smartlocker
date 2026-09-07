@@ -13,7 +13,7 @@
         in {
           default = pkgs.stdenv.mkDerivation {
             pname = "kde-bluetooth-smartlocker";
-            version = "0.1.0";
+            version = "0.1.1";
             src = self;
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.qt6.wrapQtAppsHook ];
             buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
@@ -137,7 +137,7 @@
           config = lib.mkIf cfg.enable {
             assertions = [
               {
-                assertion = builtins.all (path: !builtins.match ".*[[:space:]].*" path) cfg.devices;
+                assertion = builtins.all (path: builtins.match ".*[[:space:]].*" path == null) cfg.devices;
                 message = "kdeBluetoothSmartlocker device paths must not contain whitespace (systemd would split them): ${lib.concatMapStringsSep ", " (p: ''"${p}"'') (lib.filter (p: builtins.match ".*[[:space:]].*" p != null) cfg.devices)}";
               }
             ];
