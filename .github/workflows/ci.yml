@@ -12,4 +12,5 @@ jobs:
       - uses: cachix/install-nix-action@v30
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: ./scripts/check-version.sh
       - run: nix build .# --no-link
