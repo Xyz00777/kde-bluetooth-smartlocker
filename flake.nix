@@ -13,7 +13,7 @@
         in {
           default = pkgs.stdenv.mkDerivation {
             pname = "kde-bluetooth-smartlocker";
-            version = "0.1.1";
+            version = "0.1.2";
             src = self;
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.qt6.wrapQtAppsHook ];
             buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
@@ -25,9 +25,9 @@
               # so pass them explicitly with -I. The org.kde.smartlocker module resolves
               # via the source qmldir, but its native plugin libsmartlockerqml.so is only
               # built at build time (CMakeLists.txt), so qmllint cannot load it during lint.
-              # Hence "SmartLockerClient was not found" / "Unused import" / "org.kde.smartlocker"
-              # diagnostics are unavoidable and must be tolerated. We still FAIL the build on
-              # genuine unresolved imports ("Failed to import").
+              # Hence "SmartLockerClient was not found" / "Unused import" diagnostics are
+              # unavoidable and must be tolerated. We still FAIL the build on genuine
+              # unresolved imports ("Failed to import").
               qmllint \
                 -I "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
                 -I "${pkgs.kdePackages.libplasma}/lib/qt-6/qml" \
@@ -36,7 +36,6 @@
               qmllint_status=$?
               grep -v "SmartLockerClient was not found" qmllint.log \
                 | grep -v "Unused import" \
-                | grep -v "org.kde.smartlocker" \
                 > qmllint.filtered.log || true
               if [ "$qmllint_status" -ne 0 ] || grep -q "Failed to import" qmllint.filtered.log; then
                 cat qmllint.filtered.log
