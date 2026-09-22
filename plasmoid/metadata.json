@@ -1,10 +1,11 @@
 {
   "KPackageStructure": "Plasma/Applet",
+  "X-Plasma-NotificationAreaCategory": "SystemServices",
   "KPlugin": {
     "Id": "org.kde.smartlocker",
     "Name": "Bluetooth SmartLocker",
     "Description": "Lock-only Bluetooth presence status",
-    "Version": "0.1.2",
+    "Version": "0.1.4",
     "License": "GPL-3.0-or-later",
     "Category": "System Information",
     "EnabledByDefault": true

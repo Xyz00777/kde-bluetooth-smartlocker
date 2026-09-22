@@ -13,7 +13,7 @@
         in {
           default = pkgs.stdenv.mkDerivation {
             pname = "kde-bluetooth-smartlocker";
-            version = "0.1.2";
+            version = "0.1.4";
             src = self;
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.qt6.wrapQtAppsHook ];
             buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
@@ -134,6 +134,7 @@
             };
           };
           config = lib.mkIf cfg.enable {
+            environment.systemPackages = [ cfg.package ];
             assertions = [
               {
                 assertion = builtins.all (path: builtins.match ".*[[:space:]].*" path == null) cfg.devices;
