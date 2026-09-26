@@ -13,7 +13,7 @@
         in {
           default = pkgs.stdenv.mkDerivation {
             pname = "kde-bluetooth-smartlocker";
-            version = "0.1.4";
+            version = "0.1.5";
             src = self;
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.qt6.wrapQtAppsHook ];
             buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
@@ -22,15 +22,16 @@
             checkPhase = ''
               cd "$NIX_BUILD_TOP/$sourceRoot"
               # qmllint cannot auto-discover QML import paths (nixpkgs issue #31725),
-              # so pass them explicitly with -I. The org.kde.smartlocker module resolves
-              # via the source qmldir, but its native plugin libsmartlockerqml.so is only
-              # built at build time (CMakeLists.txt), so qmllint cannot load it during lint.
-              # Hence "SmartLockerClient was not found" / "Unused import" diagnostics are
-              # unavoidable and must be tolerated. We still FAIL the build on genuine
-              # unresolved imports ("Failed to import").
+              # so pass them explicitly with -I. The org.kde.smartlocker module is
+              # provided by plasmoid/qml/org/kde/smartlocker, whose native plugin
+              # libsmartlockerqml.so only exists after the build, so qmllint cannot
+              # load the C++ type during lint. Hence "SmartLockerClient was not found"
+              # / "Unused import" diagnostics are unavoidable and must be tolerated.
+              # We still FAIL the build on genuine unresolved imports ("Failed to import").
               qmllint \
                 -I "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
                 -I "${pkgs.kdePackages.libplasma}/lib/qt-6/qml" \
+                -I plasmoid/qml \
                 plasmoid/contents/ui/main.qml \
                 plasmoid/contents/ui/DevicePolicyRow.qml > qmllint.log 2>&1
               qmllint_status=$?

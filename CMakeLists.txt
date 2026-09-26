@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(kde_bluetooth_smartlocker VERSION 0.1.4 LANGUAGES CXX)
+project(kde_bluetooth_smartlocker VERSION 0.1.5 LANGUAGES CXX)
 
 include(CTest)
 set(CMAKE_AUTOMOC ON)
@@ -26,7 +26,13 @@ add_library(smartlocker-qml-plugin MODULE src/qml_plugin.cpp)
 target_link_libraries(smartlocker-qml-plugin PRIVATE Qt6::Core Qt6::DBus Qt6::Qml)
 target_compile_options(smartlocker-qml-plugin PRIVATE -Wall -Wextra -Wpedantic -Werror)
 set_target_properties(smartlocker-qml-plugin PROPERTIES LIBRARY_OUTPUT_NAME smartlockerqml)
-install(TARGETS smartlocker-qml-plugin LIBRARY DESTINATION share/plasma/plasmoids/org.kde.smartlocker/contents/ui/org/kde/smartlocker)
+# Install the QML module under the Qt QML import tree (${QT6_INSTALL_QML},
+# normally "lib/qt-6/qml"). Plasma/Qt only resolve `import org.kde.smartlocker`
+# when the matching URI directory lives beneath a QML import root; a plasmoid's
+# own contents/ui is NOT an import root, so keeping the plugin there makes the
+# import fail at runtime with "module \"org.kde.smartlocker\" is not installed".
+install(TARGETS smartlocker-qml-plugin LIBRARY DESTINATION ${QT6_INSTALL_QML}/org/kde/smartlocker)
+install(FILES plasmoid/qml/org/kde/smartlocker/qmldir DESTINATION ${QT6_INSTALL_QML}/org/kde/smartlocker)
 configure_file(systemd/kde-bluetooth-smartlocker.service.in kde-bluetooth-smartlocker.service @ONLY)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/kde-bluetooth-smartlocker.service DESTINATION lib/systemd/user)
 install(FILES plasmoid/metadata.json DESTINATION share/plasma/plasmoids/org.kde.smartlocker)

@@ -5,7 +5,7 @@
     "Id": "org.kde.smartlocker",
     "Name": "Bluetooth SmartLocker",
     "Description": "Lock-only Bluetooth presence status",
-    "Version": "0.1.4",
+    "Version": "0.1.5",
     "License": "GPL-3.0-or-later",
     "Category": "System Information",
     "EnabledByDefault": true

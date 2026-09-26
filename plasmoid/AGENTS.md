@@ -7,19 +7,28 @@ The Plasma 6 plasmoid package: QML UI plus the native QML plugin module (`org.kd
 ```
 plasmoid/
 ├── metadata.json              # package metadata; "Version" must match 3 other files
-└── contents/ui/
-    ├── main.qml               # PlasmoidItem root: status, global switch, device list, snooze
-    ├── DevicePolicyRow.qml    # per-device: enable switch + RSSI threshold spin box
-    └── org/kde/smartlocker/   # QML module dir
-        └── qmldir             # declares module + native smartlockerqml plugin
+├── contents/ui/
+│   ├── main.qml               # PlasmoidItem root: status, global switch, device list, snooze
+│   └── DevicePolicyRow.qml    # per-device: enable switch + RSSI threshold spin box
+└── qml/org/kde/smartlocker/   # QML module source (src/ layout)
+    └── qmldir                 # declares module + native smartlockerqml plugin
 ```
+
+> **Why the module lives in `plasmoid/qml/`, not `contents/ui/`:** Qt resolves
+> `import org.kde.smartlocker` only when the URI directory sits beneath a QML
+> *import root*. A plasmoid's own `contents/ui` is not an import root, so a module
+> kept there fails at runtime with `module "org.kde.smartlocker" is not installed`.
+> CMake installs the plugin + `qmldir` to `${QT6_INSTALL_QML}/org/kde/smartlocker`
+> (`lib/qt-6/qml/org/kde/smartlocker`), which Plasma/NixOS already expose via
+> `QML2_IMPORT_PATH`.
 
 ## WHERE TO LOOK
 | Task | File | Notes |
 |------|------|-------|
 | Plasmoid root / state | `contents/ui/main.qml` | `PlasmoidItem`, `SmartLockerClient` instance |
 | Per-device controls | `contents/ui/DevicePolicyRow.qml` | switch + RSSI spin box, `Connections` to settings |
-| QML module registration | `contents/ui/org/kde/smartlocker/qmldir` | native plugin `smartlockerqml` |
+| QML module registration | `qml/org/kde/smartlocker/qmldir` | native plugin `smartlockerqml` |
+| QML module install target | `CMakeLists.txt` | `${QT6_INSTALL_QML}/org/kde/smartlocker` |
 | Version | `metadata.json` | must stay in sync with CMake/flake/main.cpp |
 
 ## CONVENTIONS
