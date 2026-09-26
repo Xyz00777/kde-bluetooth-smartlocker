@@ -40,6 +40,7 @@ private:
     QMap<QString, int> lastRssi_;
     QMap<QString, QString> macToPath_;
     QSet<QString> watchedMacs_;
+    QSet<QString> reportedAbsent_;
     bool autoSelect_{false};
     bool started_{false};
     QTimer refreshTimer_;

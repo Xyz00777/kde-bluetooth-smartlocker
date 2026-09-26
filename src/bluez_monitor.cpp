@@ -108,9 +108,17 @@ void BluezMonitor::enumerateDevices() {
         emit deviceObserved(mac, false, 0, false);
     }
     if (!autoSelect_) {
+        // Edge-triggered: never-present devices must not spam the journal per tick.
+        QSet<QString> stillAbsent;
         for (const QString& mac : watchedMacs_ - current) {
-            qCDebug(bluezMonitorLog) << "configured Bluetooth device is currently absent:" << mac;
+            stillAbsent.insert(mac);
+            if (!reportedAbsent_.contains(mac)) {
+                qCDebug(bluezMonitorLog) << "configured Bluetooth device is currently absent:" << mac;
+            }
         }
+        reportedAbsent_ = stillAbsent;
+    } else {
+        reportedAbsent_.clear();
     }
     macToPath_ = nextMacToPath;
     const QStringList selected = autoSelect_ ? current.values() : watchedMacs_.values();
