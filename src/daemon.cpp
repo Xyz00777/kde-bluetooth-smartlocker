@@ -54,28 +54,29 @@ QString stateName(const MachineState state) {
     return "error";
 }
 
-QString deviceSettingsKey(const QString& path, const char* name) {
-    QString safePath = path;
-    safePath.replace('/', '_');
-    return QStringLiteral("devices/%1/%2").arg(safePath, QString::fromLatin1(name));
+QString deviceSettingsKey(const QString& mac, const char* name) {
+    return QStringLiteral("devices/%1/%2").arg(mac, QString::fromLatin1(name));
 }
 
 }
 
-Daemon::Daemon(StateMachineConfiguration configuration, QSet<QString> watchedPaths, const bool prelockNotifications,
+Daemon::Daemon(StateMachineConfiguration configuration, QSet<QString> watchedMacs, const bool autoSelect, const int rssiThreshold,
+               const int rssiHysteresis, const std::size_t rssiSamples, const bool prelockNotifications,
                QString lockCommand, QObject* parent)
-    : QObject(parent), machine_(std::move(configuration)), monitor_(this), watchedPaths_(std::move(watchedPaths)),
-      prelockNotifications_(prelockNotifications), lockCommand_(std::move(lockCommand)) {
+    : QObject(parent), machine_(std::move(configuration)), monitor_(this), watchedMacs_(std::move(watchedMacs)), autoSelect_(autoSelect),
+      rssiThreshold_(rssiThreshold), rssiHysteresis_(rssiHysteresis), rssiSamples_(rssiSamples), prelockNotifications_(prelockNotifications),
+      lockCommand_(std::move(lockCommand)) {
     machine_.setEnabled(settings_.value("enabled", true).toBool(), now());
-    for (const QString& path : watchedPaths_) {
-        machine_.setDeviceEnabled(DeviceId{path.toStdString()}, settings_.value(deviceSettingsKey(path, "enabled"), true).toBool(), now());
-        int threshold = settings_.value(deviceSettingsKey(path, "rssiThreshold"), machine_.deviceRssiThreshold(DeviceId{path.toStdString()})).toInt();
+    for (const QString& path : watchedMacs_) {
+        const DeviceId id{path.toStdString()};
+        machine_.setDeviceEnabled(id, settings_.value(deviceSettingsKey(path, "enabled"), true).toBool(), now());
+        int threshold = settings_.value(deviceSettingsKey(path, "rssiThreshold"), machine_.deviceRssiThreshold(id)).toInt();
         if (threshold < -100 || threshold > 0) {
             qCWarning(smartLockerLog) << "ignoring out-of-range persisted RSSI threshold for" << path << ":" << threshold;
-            threshold = machine_.deviceRssiThreshold(DeviceId{path.toStdString()});
+            threshold = machine_.deviceRssiThreshold(id);
             settings_.setValue(deviceSettingsKey(path, "rssiThreshold"), threshold);
         }
-        machine_.setDeviceRssiThreshold(DeviceId{path.toStdString()}, threshold, now());
+        machine_.setDeviceRssiThreshold(id, threshold, now());
     }
     timer_.setInterval(1000);
     connect(&timer_, &QTimer::timeout, this, &Daemon::advance);
@@ -83,6 +84,7 @@ Daemon::Daemon(StateMachineConfiguration configuration, QSet<QString> watchedPat
     connect(&verifyTimer_, &QTimer::timeout, this, &Daemon::verifyLockApplied);
     connect(&monitor_, &BluezMonitor::availabilityChanged, this, &Daemon::onAvailabilityChanged);
     connect(&monitor_, &BluezMonitor::deviceObserved, this, &Daemon::onDeviceObserved);
+    connect(&monitor_, &BluezMonitor::selectedDevicesChanged, this, &Daemon::onSelectedDevicesChanged);
     connect(&lockProcess_, &QProcess::errorOccurred, this, &Daemon::onLockProcessError);
     connect(&lockProcess_, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this, &Daemon::onLockProcessFinished);
     const bool connected = QDBusConnection::systemBus().connect("org.freedesktop.login1", "/org/freedesktop/login1",
@@ -98,7 +100,7 @@ void Daemon::start() {
         return;
     }
     started_ = true;
-    monitor_.start(watchedPaths_);
+    monitor_.start(watchedMacs_, autoSelect_);
     timer_.start();
     verifyTimer_.start();
     publishState();
@@ -109,7 +111,7 @@ QString Daemon::State() const {
 }
 
 QStringList Daemon::Devices() const {
-    QStringList devices = watchedPaths_.values();
+    QStringList devices = watchedMacs_.values();
     devices.sort();
     return devices;
 }
@@ -131,11 +133,11 @@ int Daemon::MinimumPresent() const {
 }
 
 bool Daemon::DeviceEnabled(const QString& path) const {
-    return watchedPaths_.contains(path) && machine_.deviceEnabled(DeviceId{path.toStdString()});
+    return watchedMacs_.contains(path) && machine_.deviceEnabled(DeviceId{path.toStdString()});
 }
 
 int Daemon::DeviceRssiThreshold(const QString& path) const {
-    return watchedPaths_.contains(path) ? machine_.deviceRssiThreshold(DeviceId{path.toStdString()}) : -70;
+    return watchedMacs_.contains(path) ? machine_.deviceRssiThreshold(DeviceId{path.toStdString()}) : -70;
 }
 
 bool Daemon::SetEnabled(const bool enabled) {
@@ -154,7 +156,7 @@ bool Daemon::SetDeviceEnabled(const QString& path, const bool enabled) {
     if (sessionLocked()) {
         return false;
     }
-    if (!watchedPaths_.contains(path)) {
+    if (!watchedMacs_.contains(path)) {
         return false;
     }
     machine_.setDeviceEnabled(DeviceId{path.toStdString()}, enabled, now());
@@ -169,7 +171,7 @@ bool Daemon::SetDeviceRssiThreshold(const QString& path, const int thresholdDbm)
     if (sessionLocked()) {
         return false;
     }
-    if (!watchedPaths_.contains(path)) {
+    if (!watchedMacs_.contains(path)) {
         return false;
     }
     if (thresholdDbm < -100 || thresholdDbm > 0) {
@@ -201,10 +203,30 @@ void Daemon::onAvailabilityChanged(const bool available) {
 }
 
 void Daemon::onDeviceObserved(const QString& path, const bool connected, const int rssiDbm, const bool hasRssi) {
-    if (!watchedPaths_.contains(path)) {
+    if (!watchedMacs_.contains(path)) {
         return;
     }
     machine_.observe(DeviceId{path.toStdString()}, DeviceObservation{connected, hasRssi ? std::optional{rssiDbm} : std::nullopt}, now());
+    publishState();
+}
+
+void Daemon::onSelectedDevicesChanged(const QStringList& macs) {
+    const QSet<QString> selected{macs.cbegin(), macs.cend()};
+    for (const QString& mac : selected - watchedMacs_) {
+        watchedMacs_.insert(mac);
+        const int savedThreshold = settings_.value(deviceSettingsKey(mac, "rssiThreshold"), rssiThreshold_).toInt();
+        const int threshold = savedThreshold >= -100 && savedThreshold <= 0 ? savedThreshold : rssiThreshold_;
+        machine_.addDevice({DeviceId{mac.toStdString()}, threshold, rssiHysteresis_, rssiSamples_,
+                            settings_.value(deviceSettingsKey(mac, "enabled"), true).toBool()}, now());
+    }
+    const QSet<QString> removed = watchedMacs_ - selected;
+    for (const QString& mac : removed) {
+        if (autoSelect_) {
+            machine_.removeDevice(DeviceId{mac.toStdString()}, now());
+            watchedMacs_.remove(mac);
+        }
+    }
+    emit SettingsChanged();
     publishState();
 }
 

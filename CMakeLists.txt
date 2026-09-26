@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(kde_bluetooth_smartlocker VERSION 0.1.5 LANGUAGES CXX)
+project(kde_bluetooth_smartlocker VERSION 0.2.0 LANGUAGES CXX)
 
 include(CTest)
 set(CMAKE_AUTOMOC ON)
@@ -9,7 +9,7 @@ find_package(Qt6 6.0 REQUIRED COMPONENTS Core DBus Qml)
 add_library(smartlocker-state-machine STATIC)
 target_compile_features(smartlocker-state-machine PUBLIC cxx_std_20)
 target_include_directories(smartlocker-state-machine PUBLIC include)
-target_sources(smartlocker-state-machine PRIVATE src/state_machine.cpp)
+target_sources(smartlocker-state-machine PRIVATE src/state_machine.cpp src/device_spec.cpp)
 target_compile_options(smartlocker-state-machine PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
 add_executable(kde-bluetooth-smartlocker
@@ -50,7 +50,7 @@ if(BUILD_TESTING)
     add_test(NAME daemon-lock-command-option COMMAND kde-bluetooth-smartlocker --lock-command /usr/bin/loginctl --version)
     add_test(NAME daemon-invalid-device COMMAND kde-bluetooth-smartlocker --device invalid)
     set_tests_properties(daemon-invalid-device PROPERTIES WILL_FAIL TRUE)
-    add_test(NAME daemon-duplicate-device COMMAND kde-bluetooth-smartlocker --device /org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF
+    add_test(NAME daemon-duplicate-device COMMAND kde-bluetooth-smartlocker --device AA:BB:CC:DD:EE:FF
                                                         --device /org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF)
     set_tests_properties(daemon-duplicate-device PROPERTIES WILL_FAIL TRUE)
     add_test(NAME daemon-minimum-present-exceeds-devices COMMAND kde-bluetooth-smartlocker --device /org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF --minimum-present 2)

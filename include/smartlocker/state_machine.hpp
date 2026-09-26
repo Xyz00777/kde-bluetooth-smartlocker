@@ -63,6 +63,8 @@ public:
     void setEnabled(bool enabled, TimePoint now);
     void setDeviceEnabled(const DeviceId& id, bool enabled, TimePoint now);
     void setDeviceRssiThreshold(const DeviceId& id, int thresholdDbm, TimePoint now);
+    void addDevice(DeviceConfiguration configuration, TimePoint now);
+    void removeDevice(const DeviceId& id, TimePoint now);
     void snooze(std::chrono::seconds duration, TimePoint now);
     void resume(TimePoint now);
     void observe(const DeviceId& id, DeviceObservation observation, TimePoint now);

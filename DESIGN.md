@@ -24,7 +24,7 @@ Spacing derives from a 4 px base unit: 8 px between controls, 12 px around a dev
 ## 5. Components
 
 ### DevicePolicyRow
-- **Structure**: device path label, per-device enable switch, RSSI threshold spin box.
+- **Structure**: canonical Bluetooth MAC label, per-device enable switch, RSSI threshold spin box.
 - **Variants**: enabled, disabled, unavailable device list.
 - **Spacing**: 8 px internal spacing; 12 px device-group separation.
 - **States**: default, focused, disabled, empty list.
@@ -56,7 +56,7 @@ Native Plasma controls and surfaces only. The plasmoid does not add borders, sha
 - Target native KDE accessibility behavior and keyboard reachability.
 - Keep all primary body text at native readable sizes.
 - Every setting has a visible text label and a native focus indicator.
-- Long BlueZ object paths must elide instead of causing horizontal overflow.
+- Long device identifiers must elide instead of causing horizontal overflow.
 
 ### Accepted Debt
 

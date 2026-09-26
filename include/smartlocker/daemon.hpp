@@ -15,7 +15,8 @@ class Daemon final : public QObject {
     Q_CLASSINFO("D-Bus Interface", "org.kde.SmartLocker1")
 
 public:
-    Daemon(StateMachineConfiguration configuration, QSet<QString> watchedPaths, bool prelockNotifications,
+    Daemon(StateMachineConfiguration configuration, QSet<QString> watchedMacs, bool autoSelect, int rssiThreshold, int rssiHysteresis,
+           std::size_t rssiSamples, bool prelockNotifications,
            QString lockCommand = QStringLiteral("loginctl"), QObject* parent = nullptr);
     void start();
 
@@ -40,6 +41,7 @@ signals:
 private slots:
     void onAvailabilityChanged(bool available);
     void onDeviceObserved(const QString& path, bool connected, int rssiDbm, bool hasRssi);
+    void onSelectedDevicesChanged(const QStringList& macs);
     void onPrepareForSleep(bool sleeping);
     void onLockProcessError(QProcess::ProcessError error);
     void onLockProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
@@ -51,7 +53,11 @@ private:
 
     StateMachine machine_;
     BluezMonitor monitor_;
-    QSet<QString> watchedPaths_;
+    QSet<QString> watchedMacs_;
+    bool autoSelect_;
+    int rssiThreshold_{-70};
+    int rssiHysteresis_{5};
+    std::size_t rssiSamples_{3};
     QTimer timer_;
     QTimer verifyTimer_;
     QProcess lockProcess_;

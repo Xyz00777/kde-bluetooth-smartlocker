@@ -14,7 +14,7 @@ ColumnLayout {
         Layout.fillWidth: true
         text: root.path
         elide: Text.ElideMiddle
-        Accessible.name: "Bluetooth device path"
+        Accessible.name: "Bluetooth device address"
     }
 
     RowLayout {

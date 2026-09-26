@@ -26,7 +26,8 @@ kde-bluetooth-smartlocker/
 | Daemon entry / CLI | `src/main.cpp` | `QCoreApplication`, arg parsing, D-Bus registration |
 | Lock policy logic | `src/state_machine.cpp` | pure C++20, no Qt; unit-tested |
 | D-Bus service + lock exec | `src/daemon.cpp` | `org.kde.SmartLocker1`, QSettings, lock retry/verify |
-| BlueZ monitoring | `src/bluez_monitor.cpp` | system D-Bus, RSSI caching, InterfacesRemoved |
+| Device specs | `include/smartlocker/device_spec.hpp`, `src/device_spec.cpp` | pure MAC/path normalization and auto-selection predicate |
+| BlueZ monitoring | `src/bluez_monitor.cpp` | ObjectManager enumeration, adapter-independent MAC mapping, RSSI caching, InterfacesRemoved |
 | Plasma UI | `plasmoid/contents/ui/` | `main.qml`, `DevicePolicyRow.qml` |
 | QML↔daemon bridge | `src/qml_plugin.cpp` | `SmartLockerClient` D-Bus client |
 | Tests | `tests/state_machine_test.cpp` | custom harness, not QTest |
@@ -65,6 +66,8 @@ kde-bluetooth-smartlocker/
 - State machine is **pure C++20** (no Qt) for testability; `TimePoint = steady_clock`.
 - `sessionLocked()` treats both logind `locking` and `locked` as mutation-blocked.
 - Lock command is verified post-run; failure to actually lock triggers retry.
+- Device specs and D-Bus IDs use canonical uppercase colon-separated Bluetooth MAC addresses; legacy object paths are accepted only as config input.
+- Empty device config dynamically watches every BlueZ Device1 marked paired or trusted.
 - `InterfacesRemoved` from BlueZ = device absence.
 
 ## COMMANDS

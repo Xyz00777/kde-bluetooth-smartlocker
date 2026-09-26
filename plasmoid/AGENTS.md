@@ -35,7 +35,8 @@ plasmoid/
 - **Native Plasma controls only** — no custom colors, fonts, borders, shadows, or gradients (see `DESIGN.md`). Styling comes from the active KDE theme.
 - **No custom motion/animation** — policy edits call the daemon immediately; no local animation pretends persistence.
 - **State-first UI**: state rendered as text; all actions are native controls with `Accessible.name`.
-- Long BlueZ paths **elide** (`Text.ElideMiddle`), never overflow.
+- Canonical Bluetooth MAC/DeviceId labels **elide** (`Text.ElideMiddle`), never overflow.
+- Empty list guidance appears only when configured mode has no devices or auto mode has no paired/trusted devices.
 - UI is a **thin D-Bus client** — never a duplicate in-process runtime.
 
 ## ANTI-PATTERNS

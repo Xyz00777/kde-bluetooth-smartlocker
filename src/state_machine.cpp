@@ -66,6 +66,24 @@ void StateMachine::setDeviceRssiThreshold(const DeviceId& id, const int threshol
     updateState(now);
 }
 
+void StateMachine::addDevice(DeviceConfiguration configuration, const TimePoint now) {
+    if (configuration.rssiSampleCount == 0 || deviceConfigurations_.contains(configuration.id)) {
+        throw std::invalid_argument{"invalid or duplicate device configuration"};
+    }
+    devices_.emplace(configuration.id, DeviceRuntime{});
+    deviceConfigurations_.emplace(configuration.id, std::move(configuration));
+    updateState(now);
+}
+
+void StateMachine::removeDevice(const DeviceId& id, const TimePoint now) {
+    deviceConfigurations_.erase(id);
+    devices_.erase(id);
+    if (deviceConfigurations_.empty()) {
+        observedAtLeastOneDevice_ = false;
+    }
+    updateState(now);
+}
+
 void StateMachine::snooze(const std::chrono::seconds duration, const TimePoint now) {
     if (duration <= std::chrono::seconds::zero() || duration > configuration_.snoozeDurationCap) {
         throw std::invalid_argument{"snooze duration must be within the configured cap"};
@@ -209,6 +227,11 @@ void StateMachine::updateState(const TimePoint now) {
         return;
     }
     resumeGraceUntil_.reset();
+    if (deviceConfigurations_.empty()) {
+        awaySince_.reset();
+        state_ = bluetoothAvailable_ ? MachineState::Starting : MachineState::Error;
+        return;
+    }
     if (!observedAtLeastOneDevice_) {
         state_ = bluetoothAvailable_ ? MachineState::Starting : MachineState::Error;
         return;

@@ -46,13 +46,14 @@ PlasmoidItem {
         }
         Label {
             visible: root.devicePaths.length === 0
-            text: "No devices configured. Add a BlueZ device path to enable locking."
+            text: "No paired or trusted Bluetooth devices were found."
             wrapMode: Text.Wrap
             Layout.fillWidth: true
         }
         Repeater {
             model: root.devicePaths
             delegate: DevicePolicyRow {
+                required property string modelData
                 path: modelData
                 daemonClient: client
                 Layout.fillWidth: true

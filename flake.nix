@@ -13,7 +13,7 @@
         in {
           default = pkgs.stdenv.mkDerivation {
             pname = "kde-bluetooth-smartlocker";
-            version = "0.1.5";
+            version = "0.2.0";
             src = self;
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.qt6.wrapQtAppsHook ];
             buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
@@ -91,7 +91,7 @@
             devices = lib.mkOption {
               type = lib.types.listOf lib.types.str;
               default = [];
-              description = "BlueZ D-Bus device object paths watched by the service.";
+              description = "Bluetooth device addresses (or legacy BlueZ object paths) watched by the service.";
             };
             awaySeconds = lib.mkOption {
               type = lib.types.ints.unsigned;
@@ -139,7 +139,7 @@
             assertions = [
               {
                 assertion = builtins.all (path: builtins.match ".*[[:space:]].*" path == null) cfg.devices;
-                message = "kdeBluetoothSmartlocker device paths must not contain whitespace (systemd would split them): ${lib.concatMapStringsSep ", " (p: ''"${p}"'') (lib.filter (p: builtins.match ".*[[:space:]].*" p != null) cfg.devices)}";
+                message = "kdeBluetoothSmartlocker device specs must not contain whitespace (systemd would split them): ${lib.concatMapStringsSep ", " (p: ''"${p}"'') (lib.filter (p: builtins.match ".*[[:space:]].*" p != null) cfg.devices)}";
               }
             ];
             systemd.user.services.kde-bluetooth-smartlocker = {

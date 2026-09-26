@@ -1,4 +1,5 @@
 #include "smartlocker/state_machine.hpp"
+#include "smartlocker/device_spec.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -9,6 +10,9 @@ using smartlocker::Action;
 using smartlocker::DeviceConfiguration;
 using smartlocker::DeviceId;
 using smartlocker::DeviceObservation;
+using smartlocker::autoSelectedDevice;
+using smartlocker::macFromBluezPath;
+using smartlocker::normalizeDeviceSpec;
 using smartlocker::MachineState;
 using smartlocker::StateMachine;
 using smartlocker::StateMachineConfiguration;
@@ -294,6 +298,39 @@ void testMinimumPresentExceedingDevicesThrows() {
     require(threw);
 }
 
+void testDeviceSpecNormalization() {
+    require(normalizeDeviceSpec("C0:1C:6A:75:9C:31") == "C0:1C:6A:75:9C:31");
+    require(normalizeDeviceSpec("c0-1c-6a-75-9c-31") == "C0:1C:6A:75:9C:31");
+    require(normalizeDeviceSpec("C01C6A759C31") == "C0:1C:6A:75:9C:31");
+}
+
+void testLegacyPathExtractsCanonicalMac() {
+    require(normalizeDeviceSpec("/org/bluez/hci0/dev_c0_1c_6a_75_9c_31") == "C0:1C:6A:75:9C:31");
+    require(macFromBluezPath("/org/bluez/hci7/dev_C0_1C_6A_75_9C_31") == "C0:1C:6A:75:9C:31");
+}
+
+void testMalformedDeviceSpecIsRejected() {
+    require(!normalizeDeviceSpec("C0:1C:6A:75:9C"));
+    require(!normalizeDeviceSpec("/org/bluez/hci0/adapter"));
+    require(!normalizeDeviceSpec("C0:1C:6A:75:9C:3Z"));
+    require(!normalizeDeviceSpec("C0::1C:6A:75:9C:31"));
+    require(!normalizeDeviceSpec("/org/bluez/hci0/extra/dev_C0_1C_6A_75_9C_31"));
+}
+
+void testCanonicalDeviceIdsCompareEqual() {
+    const auto first = normalizeDeviceSpec("c0-1c-6a-75-9c-31");
+    const auto second = normalizeDeviceSpec("/org/bluez/hci9/dev_C0_1C_6A_75_9C_31");
+    require(first.has_value() && second.has_value());
+    require(DeviceId{*first} == DeviceId{*second});
+}
+
+void testAutoSelectionRequiresPairedOrTrusted() {
+    require(autoSelectedDevice(true, false));
+    require(autoSelectedDevice(false, true));
+    require(autoSelectedDevice(true, true));
+    require(!autoSelectedDevice(false, false));
+}
+
 } // namespace
 
 int main() {
@@ -313,4 +350,9 @@ int main() {
     testLockFailureRetriesAfterAwayDuration();
     testSnoozeExceedingCapThrows();
     testMinimumPresentExceedingDevicesThrows();
+    testDeviceSpecNormalization();
+    testLegacyPathExtractsCanonicalMac();
+    testMalformedDeviceSpecIsRejected();
+    testCanonicalDeviceIdsCompareEqual();
+    testAutoSelectionRequiresPairedOrTrusted();
 }
