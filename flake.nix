@@ -13,7 +13,7 @@
         in {
           default = pkgs.stdenv.mkDerivation {
             pname = "kde-bluetooth-smartlocker";
-            version = "0.13.0";
+            version = "0.13.1";
             src = self;
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.qt6.wrapQtAppsHook ];
             buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
@@ -165,6 +165,7 @@
               serviceConfig.LockPersonality = true;
               serviceConfig.MemoryDenyWriteExecute = true;
               serviceConfig.RestrictAddressFamilies = [ "AF_UNIX" "AF_NETLINK" ];
+              serviceConfig.ReadWritePaths = [ "%h/.config/kde-bluetooth-smartlocker" ];
             };
           };
         };

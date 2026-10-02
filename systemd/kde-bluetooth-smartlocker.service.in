@@ -22,6 +22,7 @@ RestrictRealtime=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 RestrictAddressFamilies=AF_UNIX AF_NETLINK
+ReadWritePaths=%h/.config/kde-bluetooth-smartlocker
 
 [Install]
 WantedBy=graphical-session.target
