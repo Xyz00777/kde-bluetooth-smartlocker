@@ -31,8 +31,10 @@ SmartLockerClient {
 }
 
 // Read properties:
-// - smartLocker.state ("monitoring", "awaiting_absence", "locked", "disabled", "unavailable", etc.)
+// - smartLocker.state ("monitoring", "away", "locked", "disabled", "unavailable", etc.)
+//   Note: "unavailable" indicates the client is connecting or the daemon is not running.
 // - smartLocker.devices (list of watched Bluetooth addresses)
+// - smartLocker.snoozeSeconds (configured maximum snooze duration in seconds)
 
 // Call methods:
 // - smartLocker.setEnabled(bool)
@@ -41,5 +43,6 @@ SmartLockerClient {
 // - smartLocker.setDeviceEnabled(address, bool)
 // - smartLocker.deviceRssiThreshold(address)
 // - smartLocker.setDeviceRssiThreshold(address, dbm)
+// - smartLocker.deviceName(address)
 // - smartLocker.refresh()
 ```

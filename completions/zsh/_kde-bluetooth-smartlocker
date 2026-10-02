@@ -1,0 +1,24 @@
+#compdef kde-bluetooth-smartlocker
+
+_kde_bluetooth_smartlocker() {
+    local -a arguments
+    arguments=(
+        '(-h --help)'{-h,--help}'[Displays help on commandline options]'
+        '--help-all[Displays help including Qt specific options]'
+        '(-v --version)'{-v,--version}'[Displays version information]'
+        '*--device=[Bluetooth address or legacy BlueZ device object path to watch]:device:_bluetooth_devices'
+        '--away-seconds=[Absence duration before locking]:seconds:'
+        '--snooze-seconds=[Maximum snooze duration]:seconds:'
+        '--resume-grace-seconds=[Post-resume lock grace duration]:seconds:'
+        '--minimum-present=[Required present devices for the policy]:count:'
+        '--rssi-threshold=[Per-device RSSI threshold in dBm]:dBm:'
+        '--rssi-hysteresis=[RSSI hysteresis in dB]:dB:'
+        '--rssi-samples=[RSSI averaging window size]:count:'
+        '--prelock-notify[Notify when the away countdown starts]'
+        '--lock-command=[Command used to lock the session]:command:_command_names -e'
+    )
+
+    _arguments -s -S $arguments
+}
+
+_kde_bluetooth_smartlocker "$@"

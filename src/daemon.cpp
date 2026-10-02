@@ -165,6 +165,12 @@ Daemon::Daemon(StateMachineConfiguration configuration, QSet<QString> watchedMac
 }
 
 Daemon::~Daemon() {
+    if (prelockNotifications_ && notificationId_ != 0) {
+        QDBusInterface notification{"org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications",
+                                    QDBusConnection::sessionBus()};
+        notification.call("CloseNotification", notificationId_);
+        notificationId_ = 0;
+    }
     settings_.sync();
 }
 

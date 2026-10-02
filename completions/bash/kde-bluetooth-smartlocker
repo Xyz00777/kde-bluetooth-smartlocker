@@ -1,0 +1,31 @@
+_kde_bluetooth_smartlocker() {
+    local cur prev words cword
+    _init_completion || return
+
+    local opts="--help --help-all --version --device --away-seconds --snooze-seconds --resume-grace-seconds --minimum-present --rssi-threshold --rssi-hysteresis --rssi-samples --prelock-notify --lock-command -h -v"
+
+    case "${prev}" in
+        --device)
+            # Suggest paired/known bluetooth devices if bluetoothctl is available
+            if command -v bluetoothctl >/dev/null 2>&1; then
+                local dev_macs=$(bluetoothctl devices 2>/dev/null | awk '{print $2}')
+                COMPREPLY=( $(compgen -W "${dev_macs}" -- "${cur}") )
+            fi
+            return 0
+            ;;
+        --lock-command)
+            COMPREPLY=( $(compgen -c -- "${cur}") )
+            return 0
+            ;;
+        --away-seconds|--snooze-seconds|--resume-grace-seconds|--minimum-present|--rssi-threshold|--rssi-hysteresis|--rssi-samples)
+            return 0
+            ;;
+    esac
+
+    if [[ "${cur}" == -* ]]; then
+        COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+        return 0
+    fi
+}
+
+complete -F _kde_bluetooth_smartlocker kde-bluetooth-smartlocker
