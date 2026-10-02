@@ -56,9 +56,20 @@ FloatingWindow {
             Layout.fillWidth: true
         }
 
-        Repeater {
-            model: client.devices
-            delegate: ColumnLayout {
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.maximumHeight: 280
+            contentWidth: availableWidth
+            clip: true
+            visible: client.devices.length > 0
+
+            ColumnLayout {
+                width: parent.width
+                spacing: 8
+
+                Repeater {
+                    model: client.devices
+                    delegate: ColumnLayout {
                 required property string modelData
                 property string deviceName: client.deviceName(modelData)
                 Layout.fillWidth: true
@@ -117,6 +128,7 @@ FloatingWindow {
                 }
             }
         }
+    }
 
         RowLayout {
             Layout.fillWidth: true

@@ -49,13 +49,26 @@ PlasmoidItem {
             Layout.fillWidth: true
         }
 
-        Repeater {
-            model: client.devices
-            delegate: DevicePolicyRow {
-                required property string modelData
-                path: modelData
-                daemonClient: client
-                Layout.fillWidth: true
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.maximumHeight: 280
+            contentWidth: availableWidth
+            clip: true
+            visible: client.devices.length > 0
+
+            ColumnLayout {
+                width: parent.width
+                spacing: 6
+
+                Repeater {
+                    model: client.devices
+                    delegate: DevicePolicyRow {
+                        required property string modelData
+                        path: modelData
+                        daemonClient: client
+                        Layout.fillWidth: true
+                    }
+                }
             }
         }
 
