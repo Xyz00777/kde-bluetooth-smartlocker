@@ -138,7 +138,7 @@ public:
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
         daemon.setTimeout(2000);
         const QDBusReply<QString> reply = daemon.call("DeviceName", path);
-        if (reply.isValid()) {
+        if (reply.isValid() && !reply.value().isEmpty()) {
             nameCache_.insert(path, reply.value());
             return reply.value();
         }

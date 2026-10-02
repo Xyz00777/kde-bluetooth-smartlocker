@@ -65,14 +65,12 @@ FloatingWindow {
             model: client.devices
             delegate: ColumnLayout {
                 required property string modelData
+                property string deviceName: client.deviceName(modelData)
                 Layout.fillWidth: true
                 spacing: 4
 
                 Label {
-                    text: {
-                        const name = client.deviceName(modelData)
-                        return name.length > 0 ? (name + " (" + modelData + ")") : modelData
-                    }
+                    text: deviceName.length > 0 ? (deviceName + " (" + modelData + ")") : modelData
                     color: "#eff0f1"
                     elide: Text.ElideMiddle
                     Layout.fillWidth: true
@@ -110,6 +108,7 @@ FloatingWindow {
                 Connections {
                     target: client
                     function onSettingsChanged() {
+                        deviceName = client.deviceName(modelData)
                         devSwitch.checked = client.deviceEnabled(modelData)
                         const threshold = client.deviceRssiThreshold(modelData)
                         if (rssiBox.value !== threshold) {

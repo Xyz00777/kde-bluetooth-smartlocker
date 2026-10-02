@@ -90,6 +90,23 @@ void testDisabledWatcherNeverLocks() {
     require(machine.state() == MachineState::Disabled);
 }
 
+void testReEnableRequiresFreshObservation() {
+    // Given: a watcher that observed a present device and was then disabled.
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
+    machine.setEnabled(false, at(1));
+    require(machine.state() == MachineState::Disabled);
+
+    // When: the watcher is re-enabled without any new device observation.
+    machine.setEnabled(true, at(2));
+
+    // Then: the machine is in Starting state (not AwaitingAbsence) because
+    // the old observation history was cleared on disable.
+    require(machine.state() == MachineState::Starting);
+    require(machine.advanceTo(at(60)) == Action::None);
+}
+
 void testBelowThresholdRssiInitiatesLockingWhileConnected() {
     // Given: a connected device whose RSSI is initially above its threshold.
     StateMachine machine{configuredForOneDevice()};
@@ -384,6 +401,7 @@ int main() {
     testStartupBluetoothFailureDoesNotLock();
     testRuntimeBluetoothFailureLocksAfterAwayDuration();
     testDisabledWatcherNeverLocks();
+    testReEnableRequiresFreshObservation();
     testBelowThresholdRssiInitiatesLockingWhileConnected();
     testInitialRssiBelowThresholdInitiatesLocking();
     testSnoozeDefersButDoesNotResetAnActiveAwayTimer();

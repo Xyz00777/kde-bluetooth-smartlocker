@@ -8,16 +8,15 @@ ColumnLayout {
     required property string path
     required property var daemonClient
 
+    property string deviceName: root.daemonClient.deviceName(root.path)
+
     spacing: 4
 
     Label {
         Layout.fillWidth: true
-        text: {
-            const name = root.daemonClient.deviceName(root.path)
-            return name.length > 0 ? (name + " (" + root.path + ")") : root.path
-        }
+        text: root.deviceName.length > 0 ? (root.deviceName + " (" + root.path + ")") : root.path
         elide: Text.ElideMiddle
-        Accessible.name: "Bluetooth device address"
+        Accessible.name: "Bluetooth device"
     }
 
     RowLayout {
@@ -54,6 +53,7 @@ ColumnLayout {
     Connections {
         target: root.daemonClient
         function onSettingsChanged() {
+            root.deviceName = root.daemonClient.deviceName(root.path)
             enabledSwitch.checked = root.daemonClient.deviceEnabled(root.path)
             const threshold = root.daemonClient.deviceRssiThreshold(root.path)
             if (thresholdSpinBox.value !== threshold) {

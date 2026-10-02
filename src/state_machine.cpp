@@ -213,6 +213,7 @@ void StateMachine::updateState(const TimePoint now) {
     if (!enabled_) {
         awaySince_.reset();
         snoozedUntil_.reset();
+        observedAtLeastOneDevice_ = false;
         locked_ = false;
         state_ = MachineState::Disabled;
         return;
