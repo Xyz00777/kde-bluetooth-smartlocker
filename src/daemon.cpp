@@ -1,4 +1,5 @@
 #include "smartlocker/daemon.hpp"
+#include "smartlocker/device_spec.hpp"
 
 #include <QCoreApplication>
 #include <QDBusArgument>
@@ -111,6 +112,11 @@ QString deviceSettingsKey(const QString& mac, const char* name) {
     return QStringLiteral("devices/%1/%2").arg(mac, QString::fromLatin1(name));
 }
 
+QString resolveMac(const QString& spec) {
+    const auto mac = normalizeDeviceSpec(spec.toStdString());
+    return mac.has_value() ? QString::fromStdString(*mac) : spec;
+}
+
 }
 
 Daemon::Daemon(StateMachineConfiguration configuration, QSet<QString> watchedMacs, const bool autoSelect, const int rssiThreshold,
@@ -212,15 +218,18 @@ int Daemon::MinimumPresent() const {
 }
 
 bool Daemon::DeviceEnabled(const QString& path) const {
-    return watchedMacs_.contains(path) && machine_.deviceEnabled(DeviceId{path.toStdString()});
+    const QString mac = resolveMac(path);
+    return watchedMacs_.contains(mac) && machine_.deviceEnabled(DeviceId{mac.toStdString()});
 }
 
 int Daemon::DeviceRssiThreshold(const QString& path) const {
-    return watchedMacs_.contains(path) ? machine_.deviceRssiThreshold(DeviceId{path.toStdString()}) : -70;
+    const QString mac = resolveMac(path);
+    return watchedMacs_.contains(mac) ? machine_.deviceRssiThreshold(DeviceId{mac.toStdString()}) : -70;
 }
 
 QString Daemon::DeviceName(const QString& path) const {
-    return watchedMacs_.contains(path) ? monitor_.deviceName(path) : QString{};
+    const QString mac = resolveMac(path);
+    return watchedMacs_.contains(mac) ? monitor_.deviceName(mac) : QString{};
 }
 
 bool Daemon::SetEnabled(const bool enabled) {
@@ -239,11 +248,12 @@ bool Daemon::SetDeviceEnabled(const QString& path, const bool enabled) {
     if (sessionLocked()) {
         return false;
     }
-    if (!watchedMacs_.contains(path)) {
+    const QString mac = resolveMac(path);
+    if (!watchedMacs_.contains(mac)) {
         return false;
     }
-    machine_.setDeviceEnabled(DeviceId{path.toStdString()}, enabled, now());
-    settings_.setValue(deviceSettingsKey(path, "enabled"), enabled);
+    machine_.setDeviceEnabled(DeviceId{mac.toStdString()}, enabled, now());
+    settings_.setValue(deviceSettingsKey(mac, "enabled"), enabled);
     settings_.sync();
     publishState();
     emit SettingsChanged();
@@ -254,14 +264,15 @@ bool Daemon::SetDeviceRssiThreshold(const QString& path, const int thresholdDbm)
     if (sessionLocked()) {
         return false;
     }
-    if (!watchedMacs_.contains(path)) {
+    const QString mac = resolveMac(path);
+    if (!watchedMacs_.contains(mac)) {
         return false;
     }
     if (thresholdDbm < -100 || thresholdDbm > 0) {
         return false;
     }
-    machine_.setDeviceRssiThreshold(DeviceId{path.toStdString()}, thresholdDbm, now());
-    settings_.setValue(deviceSettingsKey(path, "rssiThreshold"), thresholdDbm);
+    machine_.setDeviceRssiThreshold(DeviceId{mac.toStdString()}, thresholdDbm, now());
+    settings_.setValue(deviceSettingsKey(mac, "rssiThreshold"), thresholdDbm);
     publishState();
     emit SettingsChanged();
     return true;

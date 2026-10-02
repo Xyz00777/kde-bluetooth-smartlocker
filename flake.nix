@@ -1,5 +1,5 @@
 {
-  description = "Lock-only Bluetooth presence daemon for KDE Plasma";
+  description = "Lock-only Bluetooth presence daemon for desktop environments";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -13,7 +13,7 @@
         in {
           default = pkgs.stdenv.mkDerivation {
             pname = "kde-bluetooth-smartlocker";
-            version = "0.12.1";
+            version = "0.13.0";
             src = self;
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.qt6.wrapQtAppsHook ];
             buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
@@ -155,6 +155,16 @@
               serviceConfig.Restart = "on-failure";
               serviceConfig.RestartSec = "2";
               serviceConfig.NoNewPrivileges = true;
+              serviceConfig.CapabilityBoundingSet = "";
+              serviceConfig.ProtectSystem = "strict";
+              serviceConfig.ProtectHome = "read-only";
+              serviceConfig.ProtectKernelTunables = true;
+              serviceConfig.ProtectControlGroups = true;
+              serviceConfig.RestrictSUIDSGID = true;
+              serviceConfig.RestrictRealtime = true;
+              serviceConfig.LockPersonality = true;
+              serviceConfig.MemoryDenyWriteExecute = true;
+              serviceConfig.RestrictAddressFamilies = [ "AF_UNIX" "AF_NETLINK" ];
             };
           };
         };

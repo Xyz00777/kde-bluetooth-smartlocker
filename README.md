@@ -1,6 +1,6 @@
-# KDE Bluetooth SmartLocker
+# Bluetooth SmartLocker
 
-KDE Plasma 6 lock-only Bluetooth presence daemon. When every configured device is absent for the configured duration, it requests a session lock with `loginctl lock-session`. Bluetooth presence never unlocks the session.
+Lock-only Bluetooth presence daemon for KDE Plasma 6, Quickshell, and desktop environments. When every configured device is absent for the configured duration, it requests a session lock with `loginctl lock-session`. Bluetooth presence never unlocks the session.
 
 ## Safety model
 
