@@ -1,10 +1,13 @@
 #include "smartlocker/daemon.hpp"
 
 #include <QCoreApplication>
+#include <QDBusArgument>
 #include <QDBusInterface>
 #include <QDBusObjectPath>
 #include <QDBusReply>
 #include <QLoggingCategory>
+
+#include <unistd.h>
 
 Q_LOGGING_CATEGORY(smartLockerLog, "org.kde.smartlocker")
 
@@ -27,18 +30,51 @@ bool sessionLocked() {
             reply = login1.call("GetSession", sessionId);
         }
     }
-    if (!reply.isValid()) {
+    QList<QDBusObjectPath> sessionPaths;
+    if (reply.isValid()) {
+        sessionPaths.append(reply.value());
+    } else {
+        // Fallback for systemd user services: find sessions belonging to current UID.
+        const QDBusReply<QDBusMessage> listReply = login1.call("ListSessions");
+        if (listReply.isValid() && !listReply.value().arguments().isEmpty()) {
+            const QDBusArgument arg = listReply.value().arguments().constFirst().value<QDBusArgument>();
+            arg.beginArray();
+            const quint32 currentUid = static_cast<quint32>(getuid());
+            while (!arg.atEnd()) {
+                QString id;
+                quint32 uid = 0;
+                QString user;
+                QString seat;
+                QDBusObjectPath path;
+                arg.beginStructure();
+                arg >> id >> uid >> user >> seat >> path;
+                arg.endStructure();
+                if (uid == currentUid && !path.path().isEmpty()) {
+                    sessionPaths.append(path);
+                }
+            }
+            arg.endArray();
+        }
+    }
+
+    if (sessionPaths.isEmpty()) {
         return false;
     }
-    QDBusInterface session{"org.freedesktop.login1", reply.value().path(), "org.freedesktop.login1.Session",
-                           QDBusConnection::systemBus()};
-    session.setTimeout(2000);
-    const QString state = session.property("State").toString();
-    const bool lockedHint = session.property("LockedHint").toBool();
-    // logind reports "locking" during the transition and "locked" while the screen
-    // is locked, or sets LockedHint to true; mutating calls must be rejected in both,
-    // since the plasmoid is unreachable behind the lock screen anyway.
-    return state == "locking" || state == "locked" || lockedHint;
+
+    for (const auto& path : sessionPaths) {
+        QDBusInterface session{"org.freedesktop.login1", path.path(), "org.freedesktop.login1.Session",
+                               QDBusConnection::systemBus()};
+        session.setTimeout(2000);
+        const QString state = session.property("State").toString();
+        const bool lockedHint = session.property("LockedHint").toBool();
+        // logind reports "locking" during the transition and "locked" while the screen
+        // is locked, or sets LockedHint to true; mutating calls must be rejected in both,
+        // since the plasmoid is unreachable behind the lock screen anyway.
+        if (state == "locking" || state == "locked" || lockedHint) {
+            return true;
+        }
+    }
+    return false;
 }
 
 QString stateName(const MachineState state) {
@@ -89,6 +125,16 @@ Daemon::Daemon(StateMachineConfiguration configuration, QSet<QString> watchedMac
     connect(&timer_, &QTimer::timeout, this, &Daemon::advance);
     verifyTimer_.setInterval(3000);
     connect(&verifyTimer_, &QTimer::timeout, this, &Daemon::verifyLockApplied);
+    lockWatchdogTimer_.setSingleShot(true);
+    lockWatchdogTimer_.setInterval(10000);
+    connect(&lockWatchdogTimer_, &QTimer::timeout, this, [this] {
+        if (lockProcess_.state() != QProcess::NotRunning) {
+            qCWarning(smartLockerLog) << "lock command timed out after 10s; terminating";
+            lockProcess_.kill();
+            machine_.clearLocked(now());
+            publishState();
+        }
+    });
     connect(&monitor_, &BluezMonitor::availabilityChanged, this, &Daemon::onAvailabilityChanged);
     connect(&monitor_, &BluezMonitor::deviceObserved, this, &Daemon::onDeviceObserved);
     connect(&monitor_, &BluezMonitor::selectedDevicesChanged, this, &Daemon::onSelectedDevicesChanged);
@@ -145,6 +191,10 @@ bool Daemon::DeviceEnabled(const QString& path) const {
 
 int Daemon::DeviceRssiThreshold(const QString& path) const {
     return watchedMacs_.contains(path) ? machine_.deviceRssiThreshold(DeviceId{path.toStdString()}) : -70;
+}
+
+QString Daemon::DeviceName(const QString& path) const {
+    return watchedMacs_.contains(path) ? monitor_.deviceName(path) : QString{};
 }
 
 bool Daemon::SetEnabled(const bool enabled) {
@@ -243,12 +293,14 @@ void Daemon::onPrepareForSleep(const bool sleeping) {
 }
 
 void Daemon::onLockProcessError(const QProcess::ProcessError error) {
+    lockWatchdogTimer_.stop();
     qCWarning(smartLockerLog) << "lock command failed to start" << error << lockProcess_.errorString();
     machine_.clearLocked(now());
     publishState();
 }
 
 void Daemon::onLockProcessFinished(const int exitCode, const QProcess::ExitStatus exitStatus) {
+    lockWatchdogTimer_.stop();
     if (exitStatus != QProcess::NormalExit || exitCode != 0) {
         qCWarning(smartLockerLog) << "lock command exited unsuccessfully" << exitCode << exitStatus;
         machine_.clearLocked(now());
@@ -259,6 +311,7 @@ void Daemon::onLockProcessFinished(const int exitCode, const QProcess::ExitStatu
 void Daemon::advance() {
     if (lockProcess_.state() == QProcess::NotRunning && machine_.advanceTo(now()) == Action::Lock) {
         qCInfo(smartLockerLog) << "requesting session lock";
+        lockWatchdogTimer_.start();
         lockProcess_.start(lockCommand_, {"lock-session"});
     }
     publishState();

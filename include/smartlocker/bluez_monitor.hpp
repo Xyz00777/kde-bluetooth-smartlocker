@@ -17,6 +17,7 @@ class BluezMonitor final : public QObject {
 public:
     explicit BluezMonitor(QObject* parent = nullptr);
     void start(const QSet<QString>& watchedMacs, bool autoSelect);
+    [[nodiscard]] QString deviceName(const QString& mac) const;
 
 signals:
     void availabilityChanged(bool available);
@@ -40,6 +41,7 @@ private:
     QMap<QString, int> lastRssi_;
     QMap<QString, QString> macToPath_;
     QMap<QString, QString> pathToMac_;
+    QMap<QString, QString> deviceNames_;
     QSet<QString> watchedMacs_;
     QSet<QString> reportedAbsent_;
     bool autoSelect_{false};

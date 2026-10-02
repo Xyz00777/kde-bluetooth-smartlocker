@@ -11,7 +11,7 @@ Q_LOGGING_CATEGORY(smartLockerMainLog, "org.kde.smartlocker.main")
 int main(int argc, char* argv[]) {
     QCoreApplication application{argc, argv};
     application.setApplicationName("kde-bluetooth-smartlocker");
-    application.setApplicationVersion("0.6.0");
+    application.setApplicationVersion("0.7.0");
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Lock-only Bluetooth presence daemon for KDE Plasma");
@@ -85,11 +85,14 @@ int main(int argc, char* argv[]) {
         watchedMacs, watchedMacs.isEmpty(), rssiThreshold, *rssiHysteresis, static_cast<std::size_t>(*rssiSamples),
         parser.isSet("prelock-notify"), parser.value("lock-command"));
     QDBusConnection bus = QDBusConnection::sessionBus();
-    if (!bus.registerService("org.kde.SmartLocker1") || !bus.registerObject("/SmartLocker", &daemon,
-                                                                              QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableSignals)) {
+    if (!bus.registerObject("/SmartLocker", &daemon,
+                            QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableSignals)) {
         return 1;
     }
     daemon.start();
+    if (!bus.registerService("org.kde.SmartLocker1")) {
+        return 1;
+    }
     QObject::connect(&application, &QCoreApplication::aboutToQuit, [&bus] {
         bus.unregisterObject("/SmartLocker");
         bus.unregisterService("org.kde.SmartLocker1");

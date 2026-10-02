@@ -91,10 +91,6 @@ public:
         return val;
     }
 
-    Q_INVOKABLE QStringList devices() {
-        return devices_;
-    }
-
     Q_INVOKABLE void setDeviceEnabled(const QString& path, const bool enabled) {
         enabledCache_.insert(path, enabled);
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
@@ -130,6 +126,19 @@ public:
         });
     }
 
+    Q_INVOKABLE QString deviceName(const QString& path) {
+        const auto it = nameCache_.constFind(path);
+        if (it != nameCache_.cend()) {
+            return it.value();
+        }
+        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
+        const QDBusReply<QString> reply = daemon.call("DeviceName", path);
+        const QString name = reply.isValid() ? reply.value() : QString{};
+        nameCache_.insert(path, name);
+        return name;
+    }
+
 signals:
     void stateChanged();
     void devicesChanged();
@@ -146,6 +155,7 @@ private slots:
     void onDaemonSettingsChanged() {
         enabledCache_.clear();
         thresholdCache_.clear();
+        nameCache_.clear();
         refreshDevices();
         emit settingsChanged();
     }
@@ -153,12 +163,14 @@ private slots:
     void onServiceRegistered(const QString&) {
         enabledCache_.clear();
         thresholdCache_.clear();
+        nameCache_.clear();
         refresh();
     }
 
     void onServiceUnregistered(const QString&) {
         enabledCache_.clear();
         thresholdCache_.clear();
+        nameCache_.clear();
         if (state_ != "unavailable") {
             state_ = "unavailable";
             emit stateChanged();
@@ -175,6 +187,7 @@ private:
     QStringList devices_{};
     QMap<QString, bool> enabledCache_{};
     QMap<QString, int> thresholdCache_{};
+    QMap<QString, QString> nameCache_{};
 };
 
 class SmartLockerPlugin final : public QQmlExtensionPlugin {

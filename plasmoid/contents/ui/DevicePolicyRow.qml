@@ -12,7 +12,10 @@ ColumnLayout {
 
     Label {
         Layout.fillWidth: true
-        text: root.path
+        text: {
+            const name = root.daemonClient.deviceName(root.path)
+            return name.length > 0 ? (name + " (" + root.path + ")") : root.path
+        }
         elide: Text.ElideMiddle
         Accessible.name: "Bluetooth device address"
     }

@@ -69,7 +69,10 @@ FloatingWindow {
                 spacing: 4
 
                 Label {
-                    text: modelData
+                    text: {
+                        const name = client.deviceName(modelData)
+                        return name.length > 0 ? (name + " (" + modelData + ")") : modelData
+                    }
                     color: "#eff0f1"
                     elide: Text.ElideMiddle
                     Layout.fillWidth: true

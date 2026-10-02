@@ -43,11 +43,16 @@ void BluezMonitor::onServiceUnregistered(const QString&) {
     lastRssi_.clear();
     macToPath_.clear();
     pathToMac_.clear();
+    deviceNames_.clear();
     for (const QString& mac : previouslyResolved) {
         emit deviceObserved(mac, false, 0, false);
     }
     emit selectedDevicesChanged(autoSelect_ ? QStringList{} : watchedMacs_.values());
     emit availabilityChanged(false);
+}
+
+QString BluezMonitor::deviceName(const QString& mac) const {
+    return deviceNames_.value(mac);
 }
 
 void BluezMonitor::start(const QSet<QString>& watchedMacs, const bool autoSelect) {
@@ -86,7 +91,8 @@ void BluezMonitor::enumerateDevices() {
     bool hasAdapter = false;
     QMap<QString, QString> nextMacToPath;
     for (auto object = objects.cbegin(); object != objects.cend(); ++object) {
-        if (object.value().contains("org.bluez.Adapter1")) {
+        const auto adapter = object.value().constFind("org.bluez.Adapter1");
+        if (adapter != object.value().cend() && adapter.value().value("Powered", true).toBool()) {
             hasAdapter = true;
         }
         const auto device = object.value().constFind("org.bluez.Device1");
@@ -135,6 +141,10 @@ void BluezMonitor::enumerateDevices() {
     emit selectedDevicesChanged(selected);
     for (auto mapping = macToPath_.cbegin(); mapping != macToPath_.cend(); ++mapping) {
         const QVariantMap properties = objects.value(QDBusObjectPath{mapping.value()}).value("org.bluez.Device1");
+        const QString name = properties.value("Alias", properties.value("Name")).toString();
+        if (!name.isEmpty()) {
+            deviceNames_.insert(mapping.key(), name);
+        }
         const bool connected = properties.value("Connected").toBool();
         if (connected) {
             everConnected_.insert(mapping.key(), true);
@@ -150,6 +160,12 @@ void BluezMonitor::enumerateDevices() {
 
 void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantMap& changed, const QStringList& invalidated,
                                        const QDBusMessage& message) {
+    if (interface == "org.bluez.Adapter1") {
+        if (changed.contains("Powered") || invalidated.contains("Powered")) {
+            enumerateDevices();
+        }
+        return;
+    }
     if (interface != "org.bluez.Device1") {
         return;
     }
@@ -160,7 +176,9 @@ void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantM
         return;
     }
     if (changed.contains("Address") || changed.contains("Paired") || changed.contains("Trusted")
+        || changed.contains("Name") || changed.contains("Alias")
         || invalidated.contains("Address") || invalidated.contains("Paired") || invalidated.contains("Trusted")
+        || invalidated.contains("Name") || invalidated.contains("Alias")
         || invalidated.contains("Connected") || invalidated.contains("RSSI")) {
         enumerateDevices();
         return;
@@ -206,6 +224,7 @@ void BluezMonitor::onInterfacesRemoved(const QDBusObjectPath& path, const QStrin
         const QString mac = macIt.value();
         pathToMac_.erase(macIt);
         macToPath_.remove(mac);
+        deviceNames_.remove(mac);
         connectionStates_.remove(mac);
         everConnected_.remove(mac);
         lastRssi_.remove(mac);

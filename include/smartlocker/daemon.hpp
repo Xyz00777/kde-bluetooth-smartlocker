@@ -29,6 +29,7 @@ public slots:
     Q_SCRIPTABLE [[nodiscard]] int MinimumPresent() const;
     Q_SCRIPTABLE [[nodiscard]] bool DeviceEnabled(const QString& path) const;
     Q_SCRIPTABLE [[nodiscard]] int DeviceRssiThreshold(const QString& path) const;
+    Q_SCRIPTABLE [[nodiscard]] QString DeviceName(const QString& path) const;
     Q_SCRIPTABLE bool SetEnabled(bool enabled);
     Q_SCRIPTABLE bool SetDeviceEnabled(const QString& path, bool enabled);
     Q_SCRIPTABLE bool SetDeviceRssiThreshold(const QString& path, int thresholdDbm);
@@ -60,6 +61,7 @@ private:
     std::size_t rssiSamples_{3};
     QTimer timer_;
     QTimer verifyTimer_;
+    QTimer lockWatchdogTimer_;
     QProcess lockProcess_;
     QSettings settings_{"kde-bluetooth-smartlocker", "daemon"};
     bool prelockNotifications_;
