@@ -6,15 +6,8 @@ import org.kde.smartlocker
 
 PlasmoidItem {
     id: root
-    property int snoozeSeconds: 30
     SmartLockerClient {
         id: client
-        Component.onCompleted: {
-            root.snoozeSeconds = client.snoozeSeconds()
-        }
-        onSettingsChanged: {
-            root.snoozeSeconds = client.snoozeSeconds()
-        }
     }
     compactRepresentation: Label { text: client.state }
     fullRepresentation: ColumnLayout {
@@ -45,10 +38,10 @@ PlasmoidItem {
             }
         }
         Button {
-            text: "Snooze " + root.snoozeSeconds + " seconds"
-            enabled: client.state !== "unavailable" && client.state !== "disabled" && root.snoozeSeconds > 0
-            visible: root.snoozeSeconds > 0
-            onClicked: client.snooze(root.snoozeSeconds)
+            text: "Snooze " + client.snoozeSeconds + " seconds"
+            enabled: client.state !== "unavailable" && client.state !== "disabled" && client.snoozeSeconds > 0
+            visible: client.snoozeSeconds > 0
+            onClicked: client.snooze(client.snoozeSeconds)
             Layout.fillWidth: true
         }
         Button {

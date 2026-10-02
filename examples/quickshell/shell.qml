@@ -15,14 +15,6 @@ FloatingWindow {
 
     SmartLockerClient {
         id: client
-        property int snoozeSeconds: 30
-
-        Component.onCompleted: {
-            snoozeSeconds = client.snoozeSeconds()
-        }
-        onSettingsChanged: {
-            snoozeSeconds = client.snoozeSeconds()
-        }
     }
 
     ColumnLayout {

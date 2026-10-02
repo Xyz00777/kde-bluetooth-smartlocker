@@ -142,12 +142,14 @@ void BluezMonitor::enumerateDevices() {
     for (auto mapping = macToPath_.cbegin(); mapping != macToPath_.cend(); ++mapping) {
         const QVariantMap properties = objects.value(QDBusObjectPath{mapping.value()}).value("org.bluez.Device1");
         const QString name = properties.value("Alias", properties.value("Name")).toString();
-        if (!name.isEmpty()) {
-            const QString prev = deviceNames_.value(mapping.key());
+        const QString prev = deviceNames_.value(mapping.key());
+        if (name.isEmpty()) {
+            deviceNames_.remove(mapping.key());
+        } else {
             deviceNames_.insert(mapping.key(), name);
-            if (name != prev) {
-                emit deviceNameChanged(mapping.key(), name);
-            }
+        }
+        if (name != prev) {
+            emit deviceNameChanged(mapping.key(), name);
         }
         const bool connected = properties.value("Connected").toBool();
         if (connected) {

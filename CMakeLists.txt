@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(kde_bluetooth_smartlocker VERSION 0.8.2 LANGUAGES CXX)
+project(kde_bluetooth_smartlocker VERSION 0.9.0 LANGUAGES CXX)
 
 include(CTest)
 set(CMAKE_AUTOMOC ON)

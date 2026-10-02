@@ -74,10 +74,13 @@ bool sessionLocked() {
         }
         const QString state = session.property("State").toString();
         const bool lockedHint = session.property("LockedHint").toBool();
+        const bool active = session.property("Active").toBool();
         // logind reports "locking" during the transition and "locked" while the screen
         // is locked, or sets LockedHint to true; mutating calls must be rejected in both,
         // since the plasmoid is unreachable behind the lock screen anyway.
-        if (state == "locking" || state == "locked" || lockedHint) {
+        // Additionally, if the graphical session is inactive (e.g. switched to another VT
+        // or fast-user-switched), mutating calls are blocked for security.
+        if (state == "locking" || state == "locked" || lockedHint || !active) {
             return true;
         }
     }

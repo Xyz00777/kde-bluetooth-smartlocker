@@ -10,6 +10,7 @@ class SmartLockerClient : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString state READ state NOTIFY stateChanged)
     Q_PROPERTY(QStringList devices READ devices NOTIFY devicesChanged)
+    Q_PROPERTY(int snoozeSeconds READ snoozeSeconds NOTIFY settingsChanged)
 
 public:
     explicit SmartLockerClient(QObject* parent = nullptr)
@@ -27,6 +28,7 @@ public:
 
     [[nodiscard]] QString state() const { return state_; }
     [[nodiscard]] QStringList devices() const { return devices_; }
+    [[nodiscard]] int snoozeSeconds() const { return snoozeSeconds_; }
 
     Q_INVOKABLE void refresh() {
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
@@ -36,6 +38,10 @@ public:
         if (state_ != newState) {
             state_ = newState;
             emit stateChanged();
+        }
+        const QDBusReply<int> snoozeReply = daemon.call("SnoozeSeconds");
+        if (snoozeReply.isValid()) {
+            snoozeSeconds_ = snoozeReply.value();
         }
         refreshDevices();
         emit settingsChanged();
@@ -195,6 +201,7 @@ private:
     QDBusServiceWatcher serviceWatcher_;
     QString state_{"unavailable"};
     QStringList devices_{};
+    int snoozeSeconds_{30};
     QMap<QString, bool> enabledCache_{};
     QMap<QString, int> thresholdCache_{};
     QMap<QString, QString> nameCache_{};
