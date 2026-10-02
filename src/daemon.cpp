@@ -145,6 +145,7 @@ Daemon::Daemon(StateMachineConfiguration configuration, QSet<QString> watchedMac
     connect(&monitor_, &BluezMonitor::availabilityChanged, this, &Daemon::onAvailabilityChanged);
     connect(&monitor_, &BluezMonitor::deviceObserved, this, &Daemon::onDeviceObserved);
     connect(&monitor_, &BluezMonitor::selectedDevicesChanged, this, &Daemon::onSelectedDevicesChanged);
+    connect(&monitor_, &BluezMonitor::deviceNameChanged, this, &Daemon::onDeviceNameChanged);
     connect(&lockProcess_, &QProcess::errorOccurred, this, &Daemon::onLockProcessError);
     connect(&lockProcess_, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this, &Daemon::onLockProcessFinished);
     const bool connected = QDBusConnection::systemBus().connect("org.freedesktop.login1", "/org/freedesktop/login1",
@@ -295,6 +296,11 @@ void Daemon::onSelectedDevicesChanged(const QStringList& macs) {
     }
     emit SettingsChanged();
     publishState();
+}
+
+void Daemon::onDeviceNameChanged(const QString& mac, const QString& name) {
+    qCDebug(smartLockerLog) << "device name updated:" << mac << "->" << name;
+    emit SettingsChanged();
 }
 
 void Daemon::onPrepareForSleep(const bool sleeping) {

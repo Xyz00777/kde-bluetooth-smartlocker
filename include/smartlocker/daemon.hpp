@@ -43,6 +43,7 @@ private slots:
     void onAvailabilityChanged(bool available);
     void onDeviceObserved(const QString& path, bool connected, int rssiDbm, bool hasRssi);
     void onSelectedDevicesChanged(const QStringList& macs);
+    void onDeviceNameChanged(const QString& mac, const QString& name);
     void onPrepareForSleep(bool sleeping);
     void onLockProcessError(QProcess::ProcessError error);
     void onLockProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
