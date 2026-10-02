@@ -9,11 +9,29 @@ PlasmoidItem {
     SmartLockerClient {
         id: client
     }
-    compactRepresentation: Label { text: client.state }
+    compactRepresentation: Label {
+        text: client.state.length > 0 ? (client.state[0].toUpperCase() + client.state.slice(1)) : ""
+        font.bold: true
+    }
     fullRepresentation: ColumnLayout {
-        spacing: 8
-        Label { text: "Bluetooth SmartLocker"; font.bold: true; Layout.fillWidth: true }
-        Label { text: "State: " + client.state; Layout.fillWidth: true }
+        spacing: 10
+        Layout.minimumWidth: 320
+
+        RowLayout {
+            Layout.fillWidth: true
+            Label {
+                text: "Bluetooth SmartLocker"
+                font.bold: true
+                font.pointSize: 11
+                Layout.fillWidth: true
+            }
+            Label {
+                text: client.state.length > 0 ? (client.state[0].toUpperCase() + client.state.slice(1)) : ""
+                font.bold: true
+                color: client.state === "monitoring" ? "#2ecc71" : (client.state === "away" ? "#f39c12" : (client.state === "locked" ? "#e74c3c" : "#95a5a6"))
+            }
+        }
+
         Switch {
             id: enabledSwitch
             text: "Monitoring enabled"
@@ -22,12 +40,15 @@ PlasmoidItem {
             onToggled: client.setEnabled(enabledSwitch.checked)
             Layout.fillWidth: true
         }
+
         Label {
             visible: client.devices.length === 0
             text: "No paired or trusted Bluetooth devices were found."
             wrapMode: Text.Wrap
+            color: "#95a5a6"
             Layout.fillWidth: true
         }
+
         Repeater {
             model: client.devices
             delegate: DevicePolicyRow {
@@ -37,17 +58,24 @@ PlasmoidItem {
                 Layout.fillWidth: true
             }
         }
-        Button {
-            text: "Snooze " + client.snoozeSeconds + " seconds"
-            enabled: client.state !== "unavailable" && client.state !== "disabled" && client.snoozeSeconds > 0
-            visible: client.snoozeSeconds > 0
-            onClicked: client.snooze(client.snoozeSeconds)
+
+        RowLayout {
             Layout.fillWidth: true
-        }
-        Button {
-            text: "Refresh"
-            onClicked: client.refresh()
-            Layout.fillWidth: true
+            spacing: 8
+
+            Button {
+                text: "Snooze (" + client.snoozeSeconds + "s)"
+                enabled: client.state !== "unavailable" && client.state !== "disabled" && client.snoozeSeconds > 0
+                visible: client.snoozeSeconds > 0
+                onClicked: client.snooze(client.snoozeSeconds)
+                Layout.fillWidth: true
+            }
+
+            Button {
+                text: "Refresh"
+                onClicked: client.refresh()
+                Layout.fillWidth: true
+            }
         }
     }
 }

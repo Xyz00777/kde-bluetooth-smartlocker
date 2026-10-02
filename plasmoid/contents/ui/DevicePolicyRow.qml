@@ -28,12 +28,14 @@ ColumnLayout {
             text: "Watch device"
             enabled: root.daemonClient.state !== "unavailable"
             checked: root.daemonClient.deviceEnabled(root.path)
-            Accessible.name: "Watch Bluetooth device"
+            Accessible.name: "Watch " + (root.deviceName.length > 0 ? root.deviceName : root.path)
             onToggled: root.daemonClient.setDeviceEnabled(root.path, enabledSwitch.checked)
         }
 
+        Item { Layout.fillWidth: true }
+
         Label {
-            text: "RSSI"
+            text: "Threshold:"
             Accessible.ignored: true
         }
 
@@ -45,7 +47,9 @@ ColumnLayout {
             enabled: root.daemonClient.state !== "unavailable"
             value: root.daemonClient.deviceRssiThreshold(root.path)
             editable: true
-            Accessible.name: "RSSI threshold in dBm"
+            textFromValue: function(value) { return value + " dBm"; }
+            valueFromText: function(text) { return parseInt(text); }
+            Accessible.name: "RSSI threshold in dBm for " + (root.deviceName.length > 0 ? root.deviceName : root.path)
             onValueModified: root.daemonClient.setDeviceRssiThreshold(root.path, thresholdSpinBox.value)
         }
     }

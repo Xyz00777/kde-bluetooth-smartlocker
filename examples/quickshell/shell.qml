@@ -23,17 +23,20 @@ FloatingWindow {
         anchors.margins: 16
         spacing: 8
 
-        Label {
-            text: "Bluetooth SmartLocker"
-            font.bold: true
-            color: "#eff0f1"
+        RowLayout {
             Layout.fillWidth: true
-        }
-
-        Label {
-            text: "State: " + client.state
-            color: "#eff0f1"
-            Layout.fillWidth: true
+            Label {
+                text: "Bluetooth SmartLocker"
+                font.bold: true
+                font.pointSize: 11
+                color: "#eff0f1"
+                Layout.fillWidth: true
+            }
+            Label {
+                text: client.state.length > 0 ? (client.state[0].toUpperCase() + client.state.slice(1)) : ""
+                font.bold: true
+                color: client.state === "monitoring" ? "#2ecc71" : (client.state === "away" ? "#f39c12" : (client.state === "locked" ? "#e74c3c" : "#bdc3c7"))
+            }
         }
 
         Switch {
@@ -80,8 +83,10 @@ FloatingWindow {
                         onToggled: client.setDeviceEnabled(modelData, devSwitch.checked)
                     }
 
+                    Item { Layout.fillWidth: true }
+
                     Label {
-                        text: "RSSI"
+                        text: "Threshold:"
                         color: "#bdc3c7"
                     }
 
@@ -93,6 +98,8 @@ FloatingWindow {
                         enabled: client.state !== "unavailable"
                         value: client.deviceRssiThreshold(modelData)
                         editable: true
+                        textFromValue: function(value) { return value + " dBm"; }
+                        valueFromText: function(text) { return parseInt(text); }
                         onValueModified: client.setDeviceRssiThreshold(modelData, rssiBox.value)
                     }
                 }
@@ -111,18 +118,23 @@ FloatingWindow {
             }
         }
 
-        Button {
-            text: "Snooze " + client.snoozeSeconds + " seconds"
-            enabled: client.state !== "unavailable" && client.state !== "disabled" && client.snoozeSeconds > 0
-            visible: client.snoozeSeconds > 0
-            onClicked: client.snooze(client.snoozeSeconds)
+        RowLayout {
             Layout.fillWidth: true
-        }
+            spacing: 8
 
-        Button {
-            text: "Refresh"
-            onClicked: client.refresh()
-            Layout.fillWidth: true
+            Button {
+                text: "Snooze (" + client.snoozeSeconds + "s)"
+                enabled: client.state !== "unavailable" && client.state !== "disabled" && client.snoozeSeconds > 0
+                visible: client.snoozeSeconds > 0
+                onClicked: client.snooze(client.snoozeSeconds)
+                Layout.fillWidth: true
+            }
+
+            Button {
+                text: "Refresh"
+                onClicked: client.refresh()
+                Layout.fillWidth: true
+            }
         }
     }
 }
