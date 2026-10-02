@@ -73,7 +73,7 @@ The native QML extension plugin `org.kde.smartlocker` only depends on Qt 6 Core,
 An example standalone floating window configuration is provided at `examples/quickshell/shell.qml`:
 
 ```sh
-quickshell -p examples/quickshell/shell.qml
+quickshell -p examples/quickshell
 ```
 
 See [Quickshell Integration](docs/quickshell.md) for details on importing and using `SmartLockerClient` in custom widgets.

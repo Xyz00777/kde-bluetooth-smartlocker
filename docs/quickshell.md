@@ -11,7 +11,7 @@ An example standalone floating window configuration is provided at [`examples/qu
 Run it with:
 
 ```sh
-quickshell -p examples/quickshell/shell.qml
+quickshell -p examples/quickshell
 ```
 
 Make sure `QML_IMPORT_PATH` includes the directory containing `org/kde/smartlocker` (for instance, when built with CMake, `<build-dir>/plasmoid/qml` or `<installed-prefix>/lib/qt-6/qml`).

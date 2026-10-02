@@ -13,7 +13,7 @@
         in {
           default = pkgs.stdenv.mkDerivation {
             pname = "kde-bluetooth-smartlocker";
-            version = "0.10.0";
+            version = "0.10.1";
             src = self;
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.qt6.wrapQtAppsHook ];
             buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
@@ -71,7 +71,8 @@
             shellHook = ''
               # qtdeclarative 6.11.1 (nixos-unstable) moved qmlimportscanner from
               # bin/ to libexec/; libexec is not on the mkShell PATH by default.
-              export PATH="${pkgs.qt6.qtdeclarative}/libexec:$PATH"
+              # Add both libexec and bin to support different Qt packaging layouts.
+              export PATH="${pkgs.qt6.qtdeclarative}/libexec:${pkgs.qt6.qtdeclarative}/bin:$PATH"
               export QML_IMPORT_PATH="${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml:${pkgs.quickshell}/lib/qt-6/qml"
               export QML2_IMPORT_PATH="${pkgs.kdePackages.plasma-desktop}/lib/qt-6/qml:${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml:${pkgs.quickshell}/lib/qt-6/qml"
               export QT_PLUGIN_PATH="${pkgs.qt6.qtbase}/lib/qt-6/plugins"
