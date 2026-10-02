@@ -86,9 +86,11 @@ public:
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
         daemon.setTimeout(2000);
         const QDBusReply<bool> reply = daemon.call("DeviceEnabled", path);
-        const bool val = reply.isValid() ? reply.value() : false;
-        enabledCache_.insert(path, val);
-        return val;
+        if (reply.isValid()) {
+            enabledCache_.insert(path, reply.value());
+            return reply.value();
+        }
+        return false;
     }
 
     Q_INVOKABLE void setDeviceEnabled(const QString& path, const bool enabled) {
@@ -110,9 +112,11 @@ public:
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
         daemon.setTimeout(2000);
         const QDBusReply<int> reply = daemon.call("DeviceRssiThreshold", path);
-        const int val = reply.isValid() ? reply.value() : -70;
-        thresholdCache_.insert(path, val);
-        return val;
+        if (reply.isValid()) {
+            thresholdCache_.insert(path, reply.value());
+            return reply.value();
+        }
+        return -70;
     }
 
     Q_INVOKABLE void setDeviceRssiThreshold(const QString& path, const int thresholdDbm) {
@@ -134,9 +138,11 @@ public:
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
         daemon.setTimeout(2000);
         const QDBusReply<QString> reply = daemon.call("DeviceName", path);
-        const QString name = reply.isValid() ? reply.value() : QString{};
-        nameCache_.insert(path, name);
-        return name;
+        if (reply.isValid()) {
+            nameCache_.insert(path, reply.value());
+            return reply.value();
+        }
+        return QString{};
     }
 
 signals:

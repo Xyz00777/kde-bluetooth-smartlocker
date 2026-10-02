@@ -4,6 +4,8 @@
 #include <QDBusArgument>
 #include <QDBusInterface>
 #include <QDBusObjectPath>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
 #include <QDBusReply>
 #include <QLoggingCategory>
 
@@ -65,6 +67,11 @@ bool sessionLocked() {
         QDBusInterface session{"org.freedesktop.login1", path.path(), "org.freedesktop.login1.Session",
                                QDBusConnection::systemBus()};
         session.setTimeout(2000);
+        const QString type = session.property("Type").toString();
+        // If multiple sessions exist (e.g. tty, cron, ssh), only graphical sessions lock
+        if (sessionPaths.size() > 1 && type != "wayland" && type != "x11") {
+            continue;
+        }
         const QString state = session.property("State").toString();
         const bool lockedHint = session.property("LockedHint").toBool();
         // logind reports "locking" during the transition and "locked" while the screen
@@ -145,6 +152,11 @@ Daemon::Daemon(StateMachineConfiguration configuration, QSet<QString> watchedMac
                                                                 SLOT(onPrepareForSleep(bool)));
     if (!connected) {
         qCWarning(smartLockerLog) << "failed to subscribe to PrepareForSleep; resume grace will not apply";
+    }
+    if (prelockNotifications_) {
+        QDBusConnection::sessionBus().connect("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                                              "org.freedesktop.Notifications", "ActionInvoked", this,
+                                              SLOT(onActionInvoked(uint,QString)));
     }
 }
 
@@ -337,11 +349,32 @@ void Daemon::publishState() {
         if (prelockNotifications_ && currentState == "away" && previousState_ != "away") {
             QDBusInterface notification{"org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications",
                                         QDBusConnection::sessionBus()};
-            notification.asyncCall("Notify", "Bluetooth SmartLocker", 0U, "", "Bluetooth device away",
-                                   "Screen will lock after the away duration.", QStringList{}, QVariantMap{}, -1);
+            const QStringList actions{"snooze", "Snooze"};
+            const int expireTimeout = static_cast<int>(machine_.awayDuration().count()) * 1000;
+            const QDBusPendingCall call = notification.asyncCall("Notify", "Bluetooth SmartLocker", notificationId_, "", "Bluetooth device away",
+                                                                "Screen will lock after the away duration.", actions, QVariantMap{}, expireTimeout);
+            auto* watcher = new QDBusPendingCallWatcher{call, this};
+            connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* w) {
+                const QDBusPendingReply<uint> reply = *w;
+                if (reply.isValid()) {
+                    notificationId_ = reply.value();
+                }
+                w->deleteLater();
+            });
+        } else if (prelockNotifications_ && currentState != "away" && notificationId_ != 0) {
+            QDBusInterface notification{"org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications",
+                                        QDBusConnection::sessionBus()};
+            notification.asyncCall("CloseNotification", notificationId_);
+            notificationId_ = 0;
         }
         previousState_ = currentState;
         emit StateChanged(currentState);
+    }
+}
+
+void Daemon::onActionInvoked(const uint id, const QString& actionKey) {
+    if (id == notificationId_ && actionKey == "snooze") {
+        Snooze(SnoozeSeconds());
     }
 }
 

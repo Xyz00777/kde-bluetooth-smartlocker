@@ -48,6 +48,7 @@ private slots:
     void onLockProcessFinished(int exitCode, QProcess::ExitStatus exitStatus);
     void verifyLockApplied();
     void advance();
+    void onActionInvoked(uint id, const QString& actionKey);
 
 private:
     void publishState();
@@ -68,6 +69,7 @@ private:
     bool started_{false};
     QString lockCommand_;
     QString previousState_;
+    uint notificationId_{0};
 };
 
 }
