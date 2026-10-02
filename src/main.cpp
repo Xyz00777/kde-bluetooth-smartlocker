@@ -11,7 +11,7 @@ Q_LOGGING_CATEGORY(smartLockerMainLog, "org.kde.smartlocker.main")
 int main(int argc, char* argv[]) {
     QCoreApplication application{argc, argv};
     application.setApplicationName("kde-bluetooth-smartlocker");
-    application.setApplicationVersion("0.2.1");
+    application.setApplicationVersion("0.5.1");
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Lock-only Bluetooth presence daemon for KDE Plasma");
@@ -56,7 +56,11 @@ int main(int argc, char* argv[]) {
     specs.append(qEnvironmentVariable("SMARTLOCKER_DEVICES").split(';', Qt::SkipEmptyParts));
     std::vector<smartlocker::DeviceConfiguration> devices;
     QSet<QString> watchedMacs;
-    for (const QString& spec : specs) {
+    for (const QString& rawSpec : specs) {
+        const QString spec = rawSpec.trimmed();
+        if (spec.isEmpty()) {
+            continue;
+        }
         const auto mac = smartlocker::normalizeDeviceSpec(spec.toStdString());
         if (!mac.has_value()) {
             qCCritical(smartLockerMainLog).noquote() << "invalid Bluetooth device address or BlueZ device object path:" << spec;
@@ -86,5 +90,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     daemon.start();
+    QObject::connect(&application, &QCoreApplication::aboutToQuit, [&bus] {
+        bus.unregisterObject("/SmartLocker");
+        bus.unregisterService("org.kde.SmartLocker1");
+    });
     return application.exec();
 }

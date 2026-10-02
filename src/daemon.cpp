@@ -20,7 +20,13 @@ bool sessionLocked() {
     QDBusInterface login1{"org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
                           QDBusConnection::systemBus()};
     login1.setTimeout(2000);
-    const QDBusReply<QDBusObjectPath> reply = login1.call("GetSessionByPID", static_cast<quint32>(QCoreApplication::applicationPid()));
+    QDBusReply<QDBusObjectPath> reply = login1.call("GetSessionByPID", static_cast<quint32>(QCoreApplication::applicationPid()));
+    if (!reply.isValid()) {
+        const QString sessionId = qEnvironmentVariable("XDG_SESSION_ID");
+        if (!sessionId.isEmpty()) {
+            reply = login1.call("GetSession", sessionId);
+        }
+    }
     if (!reply.isValid()) {
         return false;
     }
@@ -28,10 +34,11 @@ bool sessionLocked() {
                            QDBusConnection::systemBus()};
     session.setTimeout(2000);
     const QString state = session.property("State").toString();
+    const bool lockedHint = session.property("LockedHint").toBool();
     // logind reports "locking" during the transition and "locked" while the screen
-    // is locked; mutating calls must be rejected in both, since the plasmoid is
-    // unreachable behind the lock screen anyway.
-    return state == "locking" || state == "locked";
+    // is locked, or sets LockedHint to true; mutating calls must be rejected in both,
+    // since the plasmoid is unreachable behind the lock screen anyway.
+    return state == "locking" || state == "locked" || lockedHint;
 }
 
 QString stateName(const MachineState state) {
@@ -161,7 +168,6 @@ bool Daemon::SetDeviceEnabled(const QString& path, const bool enabled) {
     }
     machine_.setDeviceEnabled(DeviceId{path.toStdString()}, enabled, now());
     settings_.setValue(deviceSettingsKey(path, "enabled"), enabled);
-    settings_.sync();
     publishState();
     emit SettingsChanged();
     return true;
@@ -179,7 +185,6 @@ bool Daemon::SetDeviceRssiThreshold(const QString& path, const int thresholdDbm)
     }
     machine_.setDeviceRssiThreshold(DeviceId{path.toStdString()}, thresholdDbm, now());
     settings_.setValue(deviceSettingsKey(path, "rssiThreshold"), thresholdDbm);
-    settings_.sync();
     publishState();
     emit SettingsChanged();
     return true;
@@ -252,7 +257,7 @@ void Daemon::onLockProcessFinished(const int exitCode, const QProcess::ExitStatu
 }
 
 void Daemon::advance() {
-    if (machine_.advanceTo(now()) == Action::Lock && lockProcess_.state() == QProcess::NotRunning) {
+    if (lockProcess_.state() == QProcess::NotRunning && machine_.advanceTo(now()) == Action::Lock) {
         qCInfo(smartLockerLog) << "requesting session lock";
         lockProcess_.start(lockCommand_, {"lock-session"});
     }
@@ -275,13 +280,13 @@ void Daemon::verifyLockApplied() {
 
 void Daemon::publishState() {
     const QString currentState = State();
-    if (prelockNotifications_ && currentState == "away" && previousState_ != "away") {
-        QDBusInterface notification{"org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications",
-                                    QDBusConnection::sessionBus()};
-        notification.asyncCall("Notify", "Bluetooth SmartLocker", 0U, "", "Bluetooth device away",
-                               "Screen will lock after the away duration.", QStringList{}, QVariantMap{}, -1);
-    }
     if (currentState != previousState_) {
+        if (prelockNotifications_ && currentState == "away" && previousState_ != "away") {
+            QDBusInterface notification{"org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications",
+                                        QDBusConnection::sessionBus()};
+            notification.asyncCall("Notify", "Bluetooth SmartLocker", 0U, "", "Bluetooth device away",
+                                   "Screen will lock after the away duration.", QStringList{}, QVariantMap{}, -1);
+        }
         previousState_ = currentState;
         emit StateChanged(currentState);
     }

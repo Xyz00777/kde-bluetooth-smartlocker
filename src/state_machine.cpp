@@ -236,7 +236,8 @@ void StateMachine::updateState(const TimePoint now) {
         state_ = bluetoothAvailable_ ? MachineState::Starting : MachineState::Error;
         return;
     }
-    if (bluetoothAvailable_ && presentDeviceCount() >= configuration_.minimumPresentDevices) {
+    const std::size_t effectiveMinimum = std::min(configuration_.minimumPresentDevices, deviceConfigurations_.size());
+    if (bluetoothAvailable_ && presentDeviceCount() >= effectiveMinimum) {
         awaySince_.reset();
         locked_ = false;
         state_ = MachineState::Monitoring;

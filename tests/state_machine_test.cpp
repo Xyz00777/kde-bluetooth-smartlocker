@@ -188,6 +188,53 @@ void testRemovedDeviceStartsAwayCountdown() {
     require(machine.advanceTo(at(11)) == Action::Lock);
 }
 
+void testDynamicDeviceRemovalReevaluatesPresence() {
+    StateMachine machine{StateMachineConfiguration{
+        .awayDuration = 10s,
+        .snoozeDurationCap = 30s,
+        .postResumeGrace = 30s,
+        .minimumPresentDevices = 1,
+        .devices = {
+            DeviceConfiguration{.id = DeviceId{"phone1"}, .rssiThresholdDbm = -70, .rssiHysteresisDb = 5, .rssiSampleCount = 3},
+            DeviceConfiguration{.id = DeviceId{"phone2"}, .rssiThresholdDbm = -70, .rssiHysteresisDb = 5, .rssiSampleCount = 3}
+        },
+    }};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone1"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
+    machine.observe(DeviceId{"phone2"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(0));
+    require(machine.state() == MachineState::Monitoring);
+
+    // Remove the only present device:
+    machine.removeDevice(DeviceId{"phone1"}, at(1));
+    // Since phone2 is absent and phone1 is gone, away timer starts:
+    require(machine.state() == MachineState::AwaitingAbsence);
+    require(machine.advanceTo(at(10)) == Action::None);
+    require(machine.advanceTo(at(11)) == Action::Lock);
+}
+
+void testDynamicDeviceRemovalClampsMinimumPresentDevices() {
+    StateMachine machine{StateMachineConfiguration{
+        .awayDuration = 10s,
+        .snoozeDurationCap = 30s,
+        .postResumeGrace = 30s,
+        .minimumPresentDevices = 2,
+        .devices = {
+            DeviceConfiguration{.id = DeviceId{"phone1"}, .rssiThresholdDbm = -70, .rssiHysteresisDb = 5, .rssiSampleCount = 3},
+            DeviceConfiguration{.id = DeviceId{"phone2"}, .rssiThresholdDbm = -70, .rssiHysteresisDb = 5, .rssiSampleCount = 3}
+        },
+    }};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone1"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
+    machine.observe(DeviceId{"phone2"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
+    require(machine.state() == MachineState::Monitoring);
+
+    // Remove phone2 so only 1 device remains:
+    machine.removeDevice(DeviceId{"phone2"}, at(1));
+    // Clamping minimumPresentDevices to remaining count (1) keeps state Monitoring because phone1 is present
+    require(machine.state() == MachineState::Monitoring);
+    require(machine.advanceTo(at(10)) == Action::None);
+}
+
 void testUnconfiguredRssiThresholdUsesDefaultAndFallsBackToConnected() {
     StateMachine machine{StateMachineConfiguration{
         .awayDuration = 10s,
@@ -344,6 +391,8 @@ int main() {
     testDisablingPresentDeviceStartsAwayCountdown();
     testChangingThresholdReevaluatesObservedRssi();
     testRemovedDeviceStartsAwayCountdown();
+    testDynamicDeviceRemovalReevaluatesPresence();
+    testDynamicDeviceRemovalClampsMinimumPresentDevices();
     testUnconfiguredRssiThresholdUsesDefaultAndFallsBackToConnected();
     testLockedStateLatchesAndDoesNotRelock();
     testLockedStateClearsWhenDeviceReturns();

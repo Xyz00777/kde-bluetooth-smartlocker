@@ -42,6 +42,7 @@ void BluezMonitor::onServiceUnregistered(const QString&) {
     everConnected_.clear();
     lastRssi_.clear();
     macToPath_.clear();
+    pathToMac_.clear();
     for (const QString& mac : previouslyResolved) {
         emit deviceObserved(mac, false, 0, false);
     }
@@ -82,8 +83,12 @@ void BluezMonitor::enumerateDevices() {
         return;
     }
     const BluezObjects objects = qdbus_cast<BluezObjects>(reply.arguments().constFirst());
+    bool hasAdapter = false;
     QMap<QString, QString> nextMacToPath;
     for (auto object = objects.cbegin(); object != objects.cend(); ++object) {
+        if (object.value().contains("org.bluez.Adapter1")) {
+            hasAdapter = true;
+        }
         const auto device = object.value().constFind("org.bluez.Device1");
         if (device == object.value().cend()) {
             continue;
@@ -100,6 +105,7 @@ void BluezMonitor::enumerateDevices() {
             nextMacToPath.insert(macId, object.key().path());
         }
     }
+    emit availabilityChanged(hasAdapter);
     QSet<QString> previous;
     QSet<QString> current;
     for (auto it = macToPath_.cbegin(); it != macToPath_.cend(); ++it) previous.insert(it.key());
@@ -121,6 +127,10 @@ void BluezMonitor::enumerateDevices() {
         reportedAbsent_.clear();
     }
     macToPath_ = nextMacToPath;
+    pathToMac_.clear();
+    for (auto it = macToPath_.cbegin(); it != macToPath_.cend(); ++it) {
+        pathToMac_.insert(it.value(), it.key());
+    }
     const QStringList selected = autoSelect_ ? current.values() : watchedMacs_.values();
     emit selectedDevicesChanged(selected);
     for (auto mapping = macToPath_.cbegin(); mapping != macToPath_.cend(); ++mapping) {
@@ -130,7 +140,7 @@ void BluezMonitor::enumerateDevices() {
             everConnected_.insert(mapping.key(), true);
         }
         connectionStates_.insert(mapping.key(), connected);
-        const bool hasRssi = properties.contains("RSSI") && !(everConnected_.value(mapping.key(), false) && !connected);
+        const bool hasRssi = properties.contains("RSSI") && connected;
         if (hasRssi) {
             lastRssi_.insert(mapping.key(), properties.value("RSSI").toInt());
         }
@@ -144,11 +154,8 @@ void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantM
         return;
     }
     const QString path = message.path();
-    auto macIt = macToPath_.cbegin();
-    while (macIt != macToPath_.cend() && macIt.value() != path) {
-        ++macIt;
-    }
-    if (macIt == macToPath_.cend()) {
+    const auto macIt = pathToMac_.constFind(path);
+    if (macIt == pathToMac_.cend()) {
         enumerateDevices();
         return;
     }
@@ -158,7 +165,7 @@ void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantM
         enumerateDevices();
         return;
     }
-    const QString mac = macIt.key();
+    const QString mac = macIt.value();
     const auto connected = changed.constFind("Connected");
     const auto rssi = changed.constFind("RSSI");
     if (connected == changed.cend() && rssi == changed.cend()) {
@@ -187,15 +194,17 @@ void BluezMonitor::onInterfacesAdded() {
 }
 
 void BluezMonitor::onInterfacesRemoved(const QDBusObjectPath& path, const QStringList& interfaces) {
+    if (interfaces.contains("org.bluez.Adapter1")) {
+        enumerateDevices();
+        return;
+    }
     if (!interfaces.contains("org.bluez.Device1")) {
         return;
     }
-    auto macIt = macToPath_.cbegin();
-    while (macIt != macToPath_.cend() && macIt.value() != path.path()) {
-        ++macIt;
-    }
-    if (macIt != macToPath_.cend()) {
-        const QString mac = macIt.key();
+    const auto macIt = pathToMac_.constFind(path.path());
+    if (macIt != pathToMac_.cend()) {
+        const QString mac = macIt.value();
+        pathToMac_.erase(macIt);
         macToPath_.remove(mac);
         connectionStates_.remove(mac);
         everConnected_.remove(mac);

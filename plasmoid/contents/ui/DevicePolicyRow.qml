@@ -27,7 +27,7 @@ ColumnLayout {
             enabled: root.daemonClient.state !== "unavailable"
             checked: root.daemonClient.deviceEnabled(root.path)
             Accessible.name: "Watch Bluetooth device"
-            onToggled: root.daemonClient.setDeviceEnabled(root.path, checked)
+            onToggled: root.daemonClient.setDeviceEnabled(root.path, enabledSwitch.checked)
         }
 
         Label {
@@ -44,7 +44,7 @@ ColumnLayout {
             value: root.daemonClient.deviceRssiThreshold(root.path)
             editable: true
             Accessible.name: "RSSI threshold in dBm"
-            onValueModified: root.daemonClient.setDeviceRssiThreshold(root.path, value)
+            onValueModified: root.daemonClient.setDeviceRssiThreshold(root.path, thresholdSpinBox.value)
         }
     }
 
