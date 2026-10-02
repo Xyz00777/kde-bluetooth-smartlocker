@@ -13,7 +13,7 @@
         in {
           default = pkgs.stdenv.mkDerivation {
             pname = "kde-bluetooth-smartlocker";
-            version = "0.5.1";
+            version = "0.6.0";
             src = self;
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.qt6.wrapQtAppsHook ];
             buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
@@ -63,6 +63,7 @@
               pkgs.kdePackages.plasma-sdk
               pkgs.kdePackages.libplasma
               pkgs.kdePackages.plasma-desktop
+              pkgs.quickshell
             ];
             # NOTE: qmllint cannot auto-discover QML import paths inside `nix develop`
             # (nixpkgs issue #31725). The explicit QML_IMPORT_PATH below is the workaround.
@@ -71,8 +72,8 @@
               # qtdeclarative 6.11.1 (nixos-unstable) moved qmlimportscanner from
               # bin/ to libexec/; libexec is not on the mkShell PATH by default.
               export PATH="${pkgs.qt6.qtdeclarative}/libexec:$PATH"
-              export QML_IMPORT_PATH="${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml"
-              export QML2_IMPORT_PATH="${pkgs.kdePackages.plasma-desktop}/lib/qt-6/qml:${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml"
+              export QML_IMPORT_PATH="${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml:${pkgs.quickshell}/lib/qt-6/qml"
+              export QML2_IMPORT_PATH="${pkgs.kdePackages.plasma-desktop}/lib/qt-6/qml:${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml:${pkgs.quickshell}/lib/qt-6/qml"
               export QT_PLUGIN_PATH="${pkgs.qt6.qtbase}/lib/qt-6/plugins"
             '';
           };

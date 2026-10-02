@@ -66,7 +66,17 @@ With no `--device` options and an empty or unset `SMARTLOCKER_DEVICES`, the daem
 }
 ```
 
-The NixOS module passes the absolute `systemd` `loginctl` path via `--lock-command`, validates the RSSI threshold range and device specs at build time, and installs the daemon as a hardened user unit (`NoNewPrivileges`, bounded restarts). An empty `devices` list enables the same paired/trusted automatic mode.
+## Quickshell
+
+The native QML extension plugin `org.kde.smartlocker` only depends on Qt 6 Core, DBus, and Qml, making it directly usable in [Quickshell](https://outfoxxed.me/quickshell/) without any KDE Frameworks or Plasma dependencies.
+
+An example standalone floating window configuration is provided at `examples/quickshell/shell.qml`:
+
+```sh
+quickshell -p examples/quickshell/shell.qml
+```
+
+See [Quickshell Integration](docs/quickshell.md) for details on importing and using `SmartLockerClient` in custom widgets.
 
 ## Build and test
 
