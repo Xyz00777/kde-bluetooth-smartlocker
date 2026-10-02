@@ -232,7 +232,6 @@ void BluezMonitor::onInterfacesRemoved(const QDBusObjectPath& path, const QStrin
         connectionStates_.remove(mac);
         everConnected_.remove(mac);
         lastRssi_.remove(mac);
-        emit deviceObserved(mac, false, 0, false);
         enumerateDevices();
     }
 }

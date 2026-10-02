@@ -23,6 +23,7 @@ signals:
     void availabilityChanged(bool available);
     void deviceObserved(const QString& mac, bool connected, int rssiDbm, bool hasRssi);
     void selectedDevicesChanged(const QStringList& macs);
+    void deviceNameChanged(const QString& mac, const QString& name);
 
 private slots:
     void onPropertiesChanged(const QString& interface, const QVariantMap& changed, const QStringList& invalidated,

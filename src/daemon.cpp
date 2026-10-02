@@ -161,6 +161,10 @@ Daemon::Daemon(StateMachineConfiguration configuration, QSet<QString> watchedMac
     }
 }
 
+Daemon::~Daemon() {
+    settings_.sync();
+}
+
 void Daemon::start() {
     if (started_) {
         return;
@@ -231,6 +235,7 @@ bool Daemon::SetDeviceEnabled(const QString& path, const bool enabled) {
     }
     machine_.setDeviceEnabled(DeviceId{path.toStdString()}, enabled, now());
     settings_.setValue(deviceSettingsKey(path, "enabled"), enabled);
+    settings_.sync();
     publishState();
     emit SettingsChanged();
     return true;

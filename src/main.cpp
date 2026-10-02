@@ -11,13 +11,13 @@ Q_LOGGING_CATEGORY(smartLockerMainLog, "org.kde.smartlocker.main")
 int main(int argc, char* argv[]) {
     QCoreApplication application{argc, argv};
     application.setApplicationName("kde-bluetooth-smartlocker");
-    application.setApplicationVersion("0.8.1");
+    application.setApplicationVersion("0.8.2");
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Lock-only Bluetooth presence daemon for KDE Plasma");
     parser.addHelpOption();
     parser.addVersionOption();
-    parser.addOption({"device", "Bluetooth address or legacy BlueZ device object path to watch (repeatable).", "device"});
+    parser.addOption({"device", "Bluetooth address or legacy BlueZ device object path to watch (repeatable, or set SMARTLOCKER_DEVICES).", "device"});
     parser.addOption({"away-seconds", "Absence duration before locking.", "seconds", "30"});
     parser.addOption({"snooze-seconds", "Maximum snooze duration.", "seconds", "30"});
     parser.addOption({"resume-grace-seconds", "Post-resume lock grace duration.", "seconds", "30"});

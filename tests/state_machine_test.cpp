@@ -149,6 +149,24 @@ void testSnoozeDefersButDoesNotResetAnActiveAwayTimer() {
     require(machine.advanceTo(at(35)) == Action::Lock);
 }
 
+void testSnoozeDoesNotPersistAcrossDisableAndReenable() {
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
+
+    // Snooze for 30s
+    machine.snooze(30s, at(5));
+    require(machine.state() == MachineState::Snoozed);
+
+    // Disabling clears snooze
+    machine.setEnabled(false, at(6));
+    require(machine.state() == MachineState::Disabled);
+
+    // Re-enabling does not restore snooze; goes to Starting
+    machine.setEnabled(true, at(7));
+    require(machine.state() == MachineState::Starting);
+}
+
 void testResumeGraceDefersAnActiveAwayTimer() {
     // Given: a previously observed device is absent.
     StateMachine machine{configuredForOneDevice()};
@@ -405,6 +423,7 @@ int main() {
     testBelowThresholdRssiInitiatesLockingWhileConnected();
     testInitialRssiBelowThresholdInitiatesLocking();
     testSnoozeDefersButDoesNotResetAnActiveAwayTimer();
+    testSnoozeDoesNotPersistAcrossDisableAndReenable();
     testResumeGraceDefersAnActiveAwayTimer();
     testDisablingPresentDeviceStartsAwayCountdown();
     testChangingThresholdReevaluatesObservedRssi();

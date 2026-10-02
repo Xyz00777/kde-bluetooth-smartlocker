@@ -18,6 +18,7 @@ public:
     Daemon(StateMachineConfiguration configuration, QSet<QString> watchedMacs, bool autoSelect, int rssiThreshold, int rssiHysteresis,
            std::size_t rssiSamples, bool prelockNotifications,
            QString lockCommand = QStringLiteral("loginctl"), QObject* parent = nullptr);
+    ~Daemon() override;
     void start();
 
 public slots:

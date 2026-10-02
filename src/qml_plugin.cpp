@@ -53,6 +53,7 @@ public:
 
     Q_INVOKABLE void setEnabled(const bool enabled) {
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
         const QDBusPendingCall pending = daemon.asyncCall("SetEnabled", enabled);
         auto* watcher = new QDBusPendingCallWatcher{pending, this};
         connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* callWatcher) {
@@ -63,6 +64,7 @@ public:
 
     Q_INVOKABLE void snooze(const int seconds) {
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
         const QDBusPendingCall pending = daemon.asyncCall("Snooze", seconds);
         auto* watcher = new QDBusPendingCallWatcher{pending, this};
         connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* callWatcher) {
@@ -96,6 +98,7 @@ public:
     Q_INVOKABLE void setDeviceEnabled(const QString& path, const bool enabled) {
         enabledCache_.insert(path, enabled);
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
         const QDBusPendingCall pending = daemon.asyncCall("SetDeviceEnabled", path, enabled);
         auto* watcher = new QDBusPendingCallWatcher{pending, this};
         connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* callWatcher) {
@@ -122,6 +125,7 @@ public:
     Q_INVOKABLE void setDeviceRssiThreshold(const QString& path, const int thresholdDbm) {
         thresholdCache_.insert(path, thresholdDbm);
         QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
+        daemon.setTimeout(2000);
         const QDBusPendingCall pending = daemon.asyncCall("SetDeviceRssiThreshold", path, thresholdDbm);
         auto* watcher = new QDBusPendingCallWatcher{pending, this};
         connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* callWatcher) {
