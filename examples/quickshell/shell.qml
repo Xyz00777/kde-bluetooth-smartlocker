@@ -62,6 +62,8 @@ FloatingWindow {
             contentWidth: availableWidth
             clip: true
             visible: client.devices.length > 0
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
             ColumnLayout {
                 width: parent.width
