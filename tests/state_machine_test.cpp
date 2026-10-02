@@ -383,7 +383,9 @@ void testMinimumPresentExceedingDevicesThrows() {
 void testDeviceSpecNormalization() {
     require(normalizeDeviceSpec("C0:1C:6A:75:9C:31") == "C0:1C:6A:75:9C:31");
     require(normalizeDeviceSpec("c0-1c-6a-75-9c-31") == "C0:1C:6A:75:9C:31");
+    require(normalizeDeviceSpec("c0:1c:6a:75:9c:31") == "C0:1C:6A:75:9C:31");
     require(normalizeDeviceSpec("C01C6A759C31") == "C0:1C:6A:75:9C:31");
+    require(normalizeDeviceSpec("c01c6a759c31") == "C0:1C:6A:75:9C:31");
 }
 
 void testLegacyPathExtractsCanonicalMac() {
