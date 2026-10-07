@@ -31,8 +31,10 @@ SmartLockerClient {
 }
 
 // Read properties:
-// - smartLocker.state ("monitoring", "away", "locked", "disabled", "unavailable", etc.)
-//   Note: "unavailable" indicates the client is connecting or the daemon is not running.
+// - smartLocker.state, one of: "starting", "monitoring", "away", "snoozed",
+//   "locked", "disabled", "error", or "unavailable".
+//   "unavailable" is client-side only: the daemon is not running or unreachable.
+//   Treat any other value as unknown rather than assuming a healthy state.
 // - smartLocker.devices (list of watched Bluetooth addresses)
 // - smartLocker.snoozeSeconds (configured maximum snooze duration in seconds)
 // - smartLocker.lastError (empty when there is no outstanding error; otherwise a
