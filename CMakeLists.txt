@@ -4,7 +4,7 @@ project(kde_bluetooth_smartlocker VERSION 0.14.0 LANGUAGES CXX)
 
 include(CTest)
 set(CMAKE_AUTOMOC ON)
-find_package(Qt6 6.0 REQUIRED COMPONENTS Core DBus Qml)
+find_package(Qt6 6.0 REQUIRED COMPONENTS Core DBus Qml Test)
 
 add_library(smartlocker-state-machine STATIC)
 target_compile_features(smartlocker-state-machine PUBLIC cxx_std_20)
@@ -48,6 +48,19 @@ if(BUILD_TESTING)
     target_link_libraries(state-machine-test PRIVATE smartlocker-state-machine)
     target_compile_options(state-machine-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     add_test(NAME state-machine-test COMMAND state-machine-test)
+    add_executable(bluez-monitor-test
+        tests/bluez_monitor_test.cpp
+        src/bluez_monitor.cpp
+        src/device_spec.cpp
+        include/smartlocker/bluez_monitor.hpp
+        include/smartlocker/bluez_types.hpp
+        include/smartlocker/device_spec.hpp
+    )
+    set_target_properties(bluez-monitor-test PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    target_link_libraries(bluez-monitor-test PRIVATE Qt6::Core Qt6::DBus Qt6::Test)
+    target_include_directories(bluez-monitor-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_options(bluez-monitor-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    add_test(NAME bluez-monitor-test COMMAND bluez-monitor-test)
     add_test(NAME daemon-version COMMAND kde-bluetooth-smartlocker --version)
     add_test(NAME daemon-policy-options COMMAND kde-bluetooth-smartlocker --away-seconds 15 --minimum-present 1 --version)
     add_test(NAME daemon-zero-second-options COMMAND kde-bluetooth-smartlocker --away-seconds 0 --resume-grace-seconds 0 --version)
