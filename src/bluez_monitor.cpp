@@ -160,9 +160,9 @@ void BluezMonitor::enumerateDevices() {
             }
             const bool pathConnected = properties.value("Connected").toBool();
             pathConnectionStates_.insert(path, pathConnected);
-            if (pathConnected && !connected) {
+            if (pathConnected) {
                 connected = true;
-                if (properties.contains("RSSI")) {
+                if (!hasRssi && properties.contains("RSSI")) {
                     hasRssi = true;
                     rssiDbm = properties.value("RSSI").toInt();
                 }
@@ -186,7 +186,13 @@ void BluezMonitor::enumerateDevices() {
         }
         emit deviceObserved(mac, connected, rssiDbm, hasRssi);
     }
-    const QSet<QString> livePaths(pathToMac_.cbegin(), pathToMac_.cend());
+    // QMap iterators dereference to the mapped value, so a range-constructed QSet
+    // would hold MACs rather than object paths and prune every live entry. Insert keys.
+    QSet<QString> livePaths;
+    livePaths.reserve(pathToMac_.size());
+    for (auto it = pathToMac_.cbegin(); it != pathToMac_.cend(); ++it) {
+        livePaths.insert(it.key());
+    }
     for (auto it = pathConnectionStates_.begin(); it != pathConnectionStates_.end();) {
         it = livePaths.contains(it.key()) ? std::next(it) : pathConnectionStates_.erase(it);
     }
@@ -244,7 +250,10 @@ void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantM
     }
     const bool isConnected = macConnected(mac);
     connectionStates_.insert(mac, isConnected);
-    if (rssi != changed.cend() && !(everConnected_.value(mac, false) && !isConnected)) {
+    // The reporting path's own state must authorise the reading: a disconnected duplicate
+    // must never refresh the MAC-level RSSI while another path keeps the MAC present.
+    const bool pathConnected = pathConnectionStates_.value(path, false);
+    if (rssi != changed.cend() && pathConnected && !(everConnected_.value(mac, false) && !isConnected)) {
         lastRssi_.insert(mac, rssi->toInt());
         emit deviceObserved(mac, isConnected, rssi->toInt(), true);
     } else {
