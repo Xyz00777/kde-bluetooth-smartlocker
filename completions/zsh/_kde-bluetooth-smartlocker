@@ -1,5 +1,13 @@
 #compdef kde-bluetooth-smartlocker
 
+_bluetooth_devices() {
+    local -a devices
+    if (( $+commands[bluetoothctl] )); then
+        devices=(${(f)"$(bluetoothctl devices 2>/dev/null | awk '{print $2}')"})
+    fi
+    _describe -t devices 'bluetooth device' devices
+}
+
 _kde_bluetooth_smartlocker() {
     local -a arguments
     arguments=(
