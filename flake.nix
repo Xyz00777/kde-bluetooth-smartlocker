@@ -83,6 +83,11 @@
       nixosModules.default = { config, lib, pkgs, ... }:
         let
           cfg = config.services.kdeBluetoothSmartlocker;
+          # Restrict device specs to what the daemon actually accepts so that nothing
+          # can terminate the argument or smuggle whitespace past the ExecStart list.
+          validDeviceSpec = spec:
+            builtins.match "([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{12}|/org/bluez/hci[0-9]+/dev_[0-9A-Fa-f]{2}(_[0-9A-Fa-f]{2}){5}"
+              spec != null;
         in {
           options.services.kdeBluetoothSmartlocker = {
             enable = lib.mkEnableOption "the KDE Bluetooth SmartLocker user service";
@@ -140,8 +145,8 @@
             environment.systemPackages = [ cfg.package ];
             assertions = [
               {
-                assertion = builtins.all (path: builtins.match ".*[[:space:]].*" path == null) cfg.devices;
-                message = "kdeBluetoothSmartlocker device specs must not contain whitespace (systemd would split them): ${lib.concatMapStringsSep ", " (p: ''"${p}"'') (lib.filter (p: builtins.match ".*[[:space:]].*" p != null) cfg.devices)}";
+                assertion = builtins.all validDeviceSpec cfg.devices;
+                message = "kdeBluetoothSmartlocker device specs must be Bluetooth addresses (AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, AABBCCDDEEFF) or legacy BlueZ object paths (/org/bluez/hciX/dev_XX_XX_XX_XX_XX_XX): ${lib.concatMapStringsSep ", " (p: ''"${p}"'') (lib.filter (p: !(validDeviceSpec p)) cfg.devices)}";
               }
             ];
             systemd.user.services.kde-bluetooth-smartlocker = {
@@ -151,7 +156,27 @@
                 StartLimitIntervalSec = "10min";
                 StartLimitBurst = 10;
               };
-              serviceConfig.ExecStart = "${cfg.package}/bin/kde-bluetooth-smartlocker --lock-command ${pkgs.systemd}/bin/loginctl --away-seconds ${toString cfg.awaySeconds} --snooze-seconds ${toString cfg.snoozeSeconds} --resume-grace-seconds ${toString cfg.resumeGraceSeconds} --minimum-present ${toString cfg.minimumPresent} --rssi-threshold ${toString cfg.rssiThreshold} --rssi-hysteresis ${toString cfg.rssiHysteresis} --rssi-samples ${toString cfg.rssiSamples} ${lib.optionalString cfg.prelockNotify "--prelock-notify"} ${lib.concatMapStringsSep " " (path: "--device ${path}") cfg.devices}";
+              serviceConfig.ExecStart = [
+                "${cfg.package}/bin/kde-bluetooth-smartlocker"
+                "--lock-command"
+                "${pkgs.systemd}/bin/loginctl"
+                "--away-seconds"
+                (toString cfg.awaySeconds)
+                "--snooze-seconds"
+                (toString cfg.snoozeSeconds)
+                "--resume-grace-seconds"
+                (toString cfg.resumeGraceSeconds)
+                "--minimum-present"
+                (toString cfg.minimumPresent)
+                "--rssi-threshold"
+                (toString cfg.rssiThreshold)
+                "--rssi-hysteresis"
+                (toString cfg.rssiHysteresis)
+                "--rssi-samples"
+                (toString cfg.rssiSamples)
+              ]
+              ++ lib.optional cfg.prelockNotify "--prelock-notify"
+              ++ lib.concatMap (device: [ "--device" device ]) cfg.devices;
               serviceConfig.Restart = "on-failure";
               serviceConfig.RestartSec = "2";
               serviceConfig.NoNewPrivileges = true;
