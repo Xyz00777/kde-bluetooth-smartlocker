@@ -399,20 +399,23 @@ void Daemon::advance() {
 }
 
 void Daemon::verifyLockApplied() {
-    const SessionLockState sessionState = querySessionLockState();
-    const LockVerification decision =
-        decideLockVerification(machine_.state(), sessionState, lockProcess_.state() != QProcess::NotRunning);
-
+    // Checked before querying logind: this runs on a 3s timer for the daemon's whole lifetime,
+    // and the query costs blocking D-Bus round-trips that only matter once a lock is asserted.
     if (machine_.state() != MachineState::Locked) {
         unverifiableLockLogged_ = false;
         return;
     }
+    if (lockProcess_.state() != QProcess::NotRunning) {
+        return;
+    }
+    const SessionLockState sessionState = querySessionLockState();
+
     if (sessionState == SessionLockState::Unknown && !unverifiableLockLogged_) {
         qCWarning(smartLockerLog) << "cannot verify that the session locked; will retry";
     }
     unverifiableLockLogged_ = sessionState == SessionLockState::Unknown;
 
-    if (decision != LockVerification::ClearLatch) {
+    if (lockIsVerified(sessionState)) {
         return;
     }
     if (sessionState != SessionLockState::Unknown) {
