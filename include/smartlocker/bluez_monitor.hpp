@@ -15,8 +15,9 @@ class BluezMonitor final : public QObject {
     Q_OBJECT
 
 public:
-    explicit BluezMonitor(QObject* parent = nullptr);
+    explicit BluezMonitor(QObject* parent = nullptr, QDBusConnection bus = QDBusConnection::systemBus());
     void start(const QSet<QString>& watchedMacs, bool autoSelect);
+    void setRefreshInterval(int milliseconds);
     [[nodiscard]] QString deviceName(const QString& mac) const;
 
 signals:

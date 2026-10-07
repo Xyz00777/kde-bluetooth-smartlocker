@@ -1,5 +1,6 @@
 #include "smartlocker/bluez_monitor.hpp"
 
+#include "smartlocker/bluez_types.hpp"
 #include "smartlocker/device_spec.hpp"
 
 #include <QDBusArgument>
@@ -10,24 +11,28 @@
 #include <QLoggingCategory>
 
 #include <iterator>
-
-using BluezInterfaces = QMap<QString, QVariantMap>;
-using BluezObjects = QMap<QDBusObjectPath, BluezInterfaces>;
-Q_DECLARE_METATYPE(BluezObjects)
+#include <utility>
 
 namespace {
 
 Q_LOGGING_CATEGORY(bluezMonitorLog, "org.kde.smartlocker.bluez")
 
+// Every real state change (connect, disconnect, add, remove, RSSI, adapter power) already
+// arrives as a D-Bus signal, so the periodic enumeration is only a watchdog for a missed
+// signal. Poll quickly while something is absent or not yet known, and slowly once every
+// device is stably present, where there is nothing to detect.
+constexpr int kFastRefreshMs = 5000;
+constexpr int kSlowRefreshMs = 60000;
+
 }
 
 namespace smartlocker {
 
-BluezMonitor::BluezMonitor(QObject* parent)
-    : QObject(parent), bus_(QDBusConnection::systemBus()),
+BluezMonitor::BluezMonitor(QObject* parent, QDBusConnection bus)
+    : QObject(parent), bus_(std::move(bus)),
       serviceWatcher_("org.bluez", bus_, QDBusServiceWatcher::WatchForRegistration | QDBusServiceWatcher::WatchForUnregistration, this) {
     qDBusRegisterMetaType<BluezObjects>();
-    refreshTimer_.setInterval(5000);
+    refreshTimer_.setInterval(kFastRefreshMs);
     connect(&refreshTimer_, &QTimer::timeout, this, [this] { enumerateDevices(); });
     connect(&serviceWatcher_, &QDBusServiceWatcher::serviceRegistered, this, &BluezMonitor::onServiceRegistered);
     connect(&serviceWatcher_, &QDBusServiceWatcher::serviceUnregistered, this, &BluezMonitor::onServiceUnregistered);
@@ -52,6 +57,10 @@ void BluezMonitor::onServiceUnregistered(const QString&) {
     }
     emit selectedDevicesChanged(autoSelect_ ? QStringList{} : watchedMacs_.values());
     emit availabilityChanged(false);
+}
+
+void BluezMonitor::setRefreshInterval(const int milliseconds) {
+    refreshTimer_.setInterval(milliseconds);
 }
 
 QString BluezMonitor::deviceName(const QString& mac) const {
@@ -90,7 +99,12 @@ void BluezMonitor::enumerateDevices() {
         qCWarning(bluezMonitorLog) << "failed to enumerate BlueZ objects:" << reply.errorMessage();
         return;
     }
-    const BluezObjects objects = qdbus_cast<BluezObjects>(reply.arguments().constFirst());
+    const QVariant payload = reply.arguments().constFirst();
+    if (payload.userType() != qMetaTypeId<BluezObjects>()) {
+        qCWarning(bluezMonitorLog) << "unexpected GetManagedObjects payload; keeping the previous device set";
+        return;
+    }
+    const BluezObjects objects = qdbus_cast<BluezObjects>(payload);
     bool hasAdapter = false;
     QMap<QString, QStringList> nextMacToPaths;
     for (auto object = objects.cbegin(); object != objects.cend(); ++object) {
@@ -150,6 +164,10 @@ void BluezMonitor::enumerateDevices() {
     }
     const QStringList selected = autoSelect_ ? macToPaths_.keys() : watchedMacs_.values();
     emit selectedDevicesChanged(selected);
+    const bool settled = !current.isEmpty() && (watchedMacs_ - current).isEmpty();
+    if (refreshTimer_.isActive()) {
+        refreshTimer_.start(settled ? kSlowRefreshMs : kFastRefreshMs);
+    }
     for (auto mapping = macToPaths_.cbegin(); mapping != macToPaths_.cend(); ++mapping) {
         const QString mac = mapping.key();
         // One address can be reachable through several Device1 objects (e.g. paired on
