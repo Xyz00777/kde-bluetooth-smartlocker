@@ -3,7 +3,6 @@
 #include <QDBusPendingCall>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
-#include <QDBusReply>
 #include <QDBusServiceWatcher>
 #include <QQmlExtensionPlugin>
 #include <qqml.h>
@@ -13,6 +12,7 @@
 namespace {
 
 constexpr int kCallTimeoutMs = 2000;
+constexpr int kDefaultRssiThresholdDbm = -70;
 constexpr const char* kService = "org.kde.SmartLocker1";
 constexpr const char* kPath = "/SmartLocker";
 
@@ -97,50 +97,16 @@ public:
                       [this, path] { thresholdCache_.remove(path); });
     }
 
-    Q_INVOKABLE bool deviceEnabled(const QString& path) {
-        const auto it = enabledCache_.constFind(path);
-        if (it != enabledCache_.cend()) {
-            return it.value();
-        }
-        QDBusInterface daemon{QLatin1StringView{kService}, QLatin1StringView{kPath}, QLatin1StringView{kService}, QDBusConnection::sessionBus()};
-        daemon.setTimeout(kCallTimeoutMs);
-        const QDBusReply<bool> reply = daemon.call(QStringLiteral("DeviceEnabled"), path);
-        if (reply.isValid()) {
-            enabledCache_.insert(path, reply.value());
-            return reply.value();
-        }
-        return false;
-    }
+    // These read only the primed caches: a synchronous D-Bus fallback here would block the
+    // QML thread, because both frontends call them from property bindings. refresh() fills
+    // every cache in one asynchronous round trip and then emits settingsChanged(), so a
+    // miss is corrected as soon as the daemon answers. The fallbacks mirror the daemon's
+    // own defaults for an unset value.
+    Q_INVOKABLE bool deviceEnabled(const QString& path) { return enabledCache_.value(path, true); }
 
-    Q_INVOKABLE int deviceRssiThreshold(const QString& path) {
-        const auto it = thresholdCache_.constFind(path);
-        if (it != thresholdCache_.cend()) {
-            return it.value();
-        }
-        QDBusInterface daemon{QLatin1StringView{kService}, QLatin1StringView{kPath}, QLatin1StringView{kService}, QDBusConnection::sessionBus()};
-        daemon.setTimeout(kCallTimeoutMs);
-        const QDBusReply<int> reply = daemon.call(QStringLiteral("DeviceRssiThreshold"), path);
-        if (reply.isValid()) {
-            thresholdCache_.insert(path, reply.value());
-            return reply.value();
-        }
-        return -70;
-    }
+    Q_INVOKABLE int deviceRssiThreshold(const QString& path) { return thresholdCache_.value(path, kDefaultRssiThresholdDbm); }
 
-    Q_INVOKABLE QString deviceName(const QString& path) {
-        const auto it = nameCache_.constFind(path);
-        if (it != nameCache_.cend()) {
-            return it.value();
-        }
-        QDBusInterface daemon{QLatin1StringView{kService}, QLatin1StringView{kPath}, QLatin1StringView{kService}, QDBusConnection::sessionBus()};
-        daemon.setTimeout(kCallTimeoutMs);
-        const QDBusReply<QString> reply = daemon.call(QStringLiteral("DeviceName"), path);
-        if (reply.isValid() && !reply.value().isEmpty()) {
-            nameCache_.insert(path, reply.value());
-            return reply.value();
-        }
-        return QString{};
-    }
+    Q_INVOKABLE QString deviceName(const QString& path) { return nameCache_.value(path); }
 
 signals:
     void stateChanged();
