@@ -1,89 +1,100 @@
 #include <QDBusConnection>
 #include <QDBusInterface>
+#include <QDBusPendingCall>
 #include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
 #include <QDBusReply>
 #include <QDBusServiceWatcher>
 #include <QQmlExtensionPlugin>
 #include <qqml.h>
+
+#include <utility>
+
+namespace {
+
+constexpr int kCallTimeoutMs = 2000;
+constexpr const char* kService = "org.kde.SmartLocker1";
+constexpr const char* kPath = "/SmartLocker";
+
+// QDBusInterface is neither copyable nor movable, so it cannot be returned by value;
+// every call site either builds one in place or goes through this async helper.
+template <typename... Args>
+QDBusPendingCall asyncDaemonCall(const QString& method, Args&&... args) {
+    QDBusInterface daemon{QLatin1StringView{kService}, QLatin1StringView{kPath}, QLatin1StringView{kService}, QDBusConnection::sessionBus()};
+    daemon.setTimeout(kCallTimeoutMs);
+    return daemon.asyncCall(method, std::forward<Args>(args)...);
+}
+
+} // namespace
 
 class SmartLockerClient : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString state READ state NOTIFY stateChanged)
     Q_PROPERTY(QStringList devices READ devices NOTIFY devicesChanged)
     Q_PROPERTY(int snoozeSeconds READ snoozeSeconds NOTIFY settingsChanged)
+    Q_PROPERTY(QString lastError READ lastError NOTIFY errorOccurred)
 
 public:
     explicit SmartLockerClient(QObject* parent = nullptr)
         : QObject(parent),
-          serviceWatcher_("org.kde.SmartLocker1", QDBusConnection::sessionBus(),
+          serviceWatcher_(QString::fromLatin1(kService), QDBusConnection::sessionBus(),
                           QDBusServiceWatcher::WatchForRegistration | QDBusServiceWatcher::WatchForUnregistration, this) {
         connect(&serviceWatcher_, &QDBusServiceWatcher::serviceRegistered, this, &SmartLockerClient::onServiceRegistered);
         connect(&serviceWatcher_, &QDBusServiceWatcher::serviceUnregistered, this, &SmartLockerClient::onServiceUnregistered);
-        QDBusConnection::sessionBus().connect("org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", "StateChanged", this,
-                                              SLOT(onDaemonStateChanged(QString)));
-        QDBusConnection::sessionBus().connect("org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", "SettingsChanged", this,
-                                              SLOT(onDaemonSettingsChanged()));
+        QDBusConnection::sessionBus().connect(kService, kPath, kService, "StateChanged", this, SLOT(onDaemonStateChanged(QString)));
+        QDBusConnection::sessionBus().connect(kService, kPath, kService, "SettingsChanged", this, SLOT(onDaemonSettingsChanged()));
         refresh();
     }
 
     [[nodiscard]] QString state() const { return state_; }
     [[nodiscard]] QStringList devices() const { return devices_; }
     [[nodiscard]] int snoozeSeconds() const { return snoozeSeconds_; }
+    [[nodiscard]] QString lastError() const { return lastError_; }
+
+    Q_INVOKABLE void clearError() { setLastError(QString{}); }
 
     Q_INVOKABLE void refresh() {
-        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
-        daemon.setTimeout(2000);
-        const QDBusReply<QString> reply = daemon.call("State");
-        const QString newState = reply.isValid() ? reply.value() : QStringLiteral("unavailable");
-        if (state_ != newState) {
-            state_ = newState;
-            emit stateChanged();
-        }
-        const QDBusReply<int> snoozeReply = daemon.call("SnoozeSeconds");
-        if (snoozeReply.isValid()) {
-            snoozeSeconds_ = snoozeReply.value();
-        }
-        refreshDevices();
-        emit settingsChanged();
-    }
+        const quint64 generation = ++refreshGeneration_;
 
-    Q_INVOKABLE void refreshDevices() {
-        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
-        daemon.setTimeout(2000);
-        const QDBusReply<QStringList> reply = daemon.call("Devices");
-        if (reply.isValid() && devices_ != reply.value()) {
-            devices_ = reply.value();
-            emit devicesChanged();
-        }
-    }
-
-    Q_INVOKABLE void setEnabled(const bool enabled) {
-        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
-        daemon.setTimeout(2000);
-        const QDBusPendingCall pending = daemon.asyncCall("SetEnabled", enabled);
-        auto* watcher = new QDBusPendingCallWatcher{pending, this};
-        connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* callWatcher) {
-            callWatcher->deleteLater();
-            refresh();
+        watchReply<QString>(asyncDaemonCall(QStringLiteral("State")), [this, generation](const QDBusPendingReply<QString>& reply) {
+            if (generation != refreshGeneration_) {
+                return;
+            }
+            const QString next = reply.isValid() ? reply.value() : QStringLiteral("unavailable");
+            if (state_ != next) {
+                state_ = next;
+                emit stateChanged();
+            }
         });
-    }
 
-    Q_INVOKABLE void snooze(const int seconds) {
-        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
-        daemon.setTimeout(2000);
-        const QDBusPendingCall pending = daemon.asyncCall("Snooze", seconds);
-        auto* watcher = new QDBusPendingCallWatcher{pending, this};
-        connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* callWatcher) {
-            callWatcher->deleteLater();
-            refresh();
+        watchReply<int>(asyncDaemonCall(QStringLiteral("SnoozeSeconds")), [this, generation](const QDBusPendingReply<int>& reply) {
+            if (generation != refreshGeneration_ || !reply.isValid()) {
+                return;
+            }
+            if (snoozeSeconds_ != reply.value()) {
+                snoozeSeconds_ = reply.value();
+                emit settingsChanged();
+            }
         });
+
+        refreshDevices(generation);
     }
 
-    Q_INVOKABLE int snoozeSeconds() {
-        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
-        daemon.setTimeout(2000);
-        const QDBusReply<int> reply = daemon.call("SnoozeSeconds");
-        return reply.isValid() ? reply.value() : 30;
+    Q_INVOKABLE void refreshDevices() { refreshDevices(++refreshGeneration_); }
+
+    Q_INVOKABLE void setEnabled(const bool enabled) { watchMutation(asyncDaemonCall(QStringLiteral("SetEnabled"), enabled)); }
+
+    Q_INVOKABLE void snooze(const int seconds) { watchMutation(asyncDaemonCall(QStringLiteral("Snooze"), seconds)); }
+
+    Q_INVOKABLE void setDeviceEnabled(const QString& path, const bool enabled) {
+        enabledCache_.insert(path, enabled);
+        watchMutation(asyncDaemonCall(QStringLiteral("SetDeviceEnabled"), path, enabled), [this, path] { enabledCache_.remove(path); });
+    }
+
+    Q_INVOKABLE void setDeviceRssiThreshold(const QString& path, const int thresholdDbm) {
+        thresholdCache_.insert(path, thresholdDbm);
+        watchMutation(asyncDaemonCall(QStringLiteral("SetDeviceRssiThreshold"), path, thresholdDbm),
+                      [this, path] { thresholdCache_.remove(path); });
     }
 
     Q_INVOKABLE bool deviceEnabled(const QString& path) {
@@ -91,9 +102,9 @@ public:
         if (it != enabledCache_.cend()) {
             return it.value();
         }
-        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
-        daemon.setTimeout(2000);
-        const QDBusReply<bool> reply = daemon.call("DeviceEnabled", path);
+        QDBusInterface daemon{QLatin1StringView{kService}, QLatin1StringView{kPath}, QLatin1StringView{kService}, QDBusConnection::sessionBus()};
+        daemon.setTimeout(kCallTimeoutMs);
+        const QDBusReply<bool> reply = daemon.call(QStringLiteral("DeviceEnabled"), path);
         if (reply.isValid()) {
             enabledCache_.insert(path, reply.value());
             return reply.value();
@@ -101,26 +112,14 @@ public:
         return false;
     }
 
-    Q_INVOKABLE void setDeviceEnabled(const QString& path, const bool enabled) {
-        enabledCache_.insert(path, enabled);
-        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
-        daemon.setTimeout(2000);
-        const QDBusPendingCall pending = daemon.asyncCall("SetDeviceEnabled", path, enabled);
-        auto* watcher = new QDBusPendingCallWatcher{pending, this};
-        connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* callWatcher) {
-            callWatcher->deleteLater();
-            refresh();
-        });
-    }
-
     Q_INVOKABLE int deviceRssiThreshold(const QString& path) {
         const auto it = thresholdCache_.constFind(path);
         if (it != thresholdCache_.cend()) {
             return it.value();
         }
-        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
-        daemon.setTimeout(2000);
-        const QDBusReply<int> reply = daemon.call("DeviceRssiThreshold", path);
+        QDBusInterface daemon{QLatin1StringView{kService}, QLatin1StringView{kPath}, QLatin1StringView{kService}, QDBusConnection::sessionBus()};
+        daemon.setTimeout(kCallTimeoutMs);
+        const QDBusReply<int> reply = daemon.call(QStringLiteral("DeviceRssiThreshold"), path);
         if (reply.isValid()) {
             thresholdCache_.insert(path, reply.value());
             return reply.value();
@@ -128,26 +127,14 @@ public:
         return -70;
     }
 
-    Q_INVOKABLE void setDeviceRssiThreshold(const QString& path, const int thresholdDbm) {
-        thresholdCache_.insert(path, thresholdDbm);
-        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
-        daemon.setTimeout(2000);
-        const QDBusPendingCall pending = daemon.asyncCall("SetDeviceRssiThreshold", path, thresholdDbm);
-        auto* watcher = new QDBusPendingCallWatcher{pending, this};
-        connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* callWatcher) {
-            callWatcher->deleteLater();
-            refresh();
-        });
-    }
-
     Q_INVOKABLE QString deviceName(const QString& path) {
         const auto it = nameCache_.constFind(path);
         if (it != nameCache_.cend()) {
             return it.value();
         }
-        QDBusInterface daemon{"org.kde.SmartLocker1", "/SmartLocker", "org.kde.SmartLocker1", QDBusConnection::sessionBus()};
-        daemon.setTimeout(2000);
-        const QDBusReply<QString> reply = daemon.call("DeviceName", path);
+        QDBusInterface daemon{QLatin1StringView{kService}, QLatin1StringView{kPath}, QLatin1StringView{kService}, QDBusConnection::sessionBus()};
+        daemon.setTimeout(kCallTimeoutMs);
+        const QDBusReply<QString> reply = daemon.call(QStringLiteral("DeviceName"), path);
         if (reply.isValid() && !reply.value().isEmpty()) {
             nameCache_.insert(path, reply.value());
             return reply.value();
@@ -159,6 +146,65 @@ signals:
     void stateChanged();
     void devicesChanged();
     void settingsChanged();
+    void errorOccurred();
+
+private:
+    template <typename Reply, typename Handler>
+    void watchReply(const QDBusPendingCall& pending, Handler&& handler) {
+        auto* watcher = new QDBusPendingCallWatcher{pending, this};
+        connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher, handler = std::forward<Handler>(handler)]() mutable {
+            const QDBusPendingReply<Reply> reply = *watcher;
+            watcher->deleteLater();
+            handler(reply);
+        });
+    }
+
+    template <typename OnRejected>
+    void watchMutation(const QDBusPendingCall& pending, OnRejected&& onRejected) {
+        auto* watcher = new QDBusPendingCallWatcher{pending, this};
+        connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher, onRejected = std::forward<OnRejected>(onRejected)]() {
+            const bool rejected = watcher->isError();
+            const QString reason = watcher->error().message();
+            watcher->deleteLater();
+            if (rejected) {
+                // Drop the optimistic entry so the next read re-fetches the value the daemon
+                // actually holds, instead of showing a setting that was never applied.
+                onRejected();
+                setLastError(tr("The daemon rejected the change: %1").arg(reason));
+            } else {
+                setLastError(QString{});
+            }
+            refresh();
+        });
+    }
+
+    void watchMutation(const QDBusPendingCall& pending) { watchMutation(pending, [] {}); }
+
+    void refreshDevices(const quint64 generation) {
+        watchReply<QStringList>(asyncDaemonCall(QStringLiteral("Devices")), [this, generation](const QDBusPendingReply<QStringList>& reply) {
+            if (generation != refreshGeneration_ || !reply.isValid()) {
+                return;
+            }
+            if (devices_ != reply.value()) {
+                devices_ = reply.value();
+                emit devicesChanged();
+            }
+        });
+    }
+
+    void setLastError(const QString& message) {
+        if (lastError_ == message) {
+            return;
+        }
+        lastError_ = message;
+        emit errorOccurred();
+    }
+
+    void clearCaches() {
+        enabledCache_.clear();
+        thresholdCache_.clear();
+        nameCache_.clear();
+    }
 
 private slots:
     void onDaemonStateChanged(const QString& state) {
@@ -169,26 +215,21 @@ private slots:
     }
 
     void onDaemonSettingsChanged() {
-        enabledCache_.clear();
-        thresholdCache_.clear();
-        nameCache_.clear();
-        refreshDevices();
+        clearCaches();
+        refreshDevices(++refreshGeneration_);
         emit settingsChanged();
     }
 
     void onServiceRegistered(const QString&) {
-        enabledCache_.clear();
-        thresholdCache_.clear();
-        nameCache_.clear();
+        clearCaches();
         refresh();
     }
 
     void onServiceUnregistered(const QString&) {
-        enabledCache_.clear();
-        thresholdCache_.clear();
-        nameCache_.clear();
-        if (state_ != "unavailable") {
-            state_ = "unavailable";
+        clearCaches();
+        setLastError(tr("The daemon is not running."));
+        if (state_ != QStringLiteral("unavailable")) {
+            state_ = QStringLiteral("unavailable");
             emit stateChanged();
         }
         if (!devices_.isEmpty()) {
@@ -202,6 +243,8 @@ private:
     QString state_{"unavailable"};
     QStringList devices_{};
     int snoozeSeconds_{30};
+    QString lastError_{};
+    quint64 refreshGeneration_{0};
     QMap<QString, bool> enabledCache_{};
     QMap<QString, int> thresholdCache_{};
     QMap<QString, QString> nameCache_{};
