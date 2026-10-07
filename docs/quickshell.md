@@ -6,7 +6,7 @@ Because the daemon communicates over session D-Bus and the native QML extension 
 
 ## 1. Running the Example Configuration
 
-An example standalone floating window configuration is provided at [`examples/quickshell/shell.qml`](./examples/quickshell/shell.qml).
+An example standalone floating window configuration is provided at [`examples/quickshell/shell.qml`](../examples/quickshell/shell.qml).
 
 Run it with:
 

@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-09-07T08:12:45Z
-**Commit:** 5459d75
+**Generated:** 2026-10-07T12:09:13Z
+**Commit:** 59ec353
 **Branch:** main
 
 ## OVERVIEW
@@ -48,8 +48,8 @@ kde-bluetooth-smartlocker/
 - **No KDE Frameworks / ECM / KConfig / i18n.** Plain Qt6 Core/DBus/Qml. Persistence via `QSettings` (`kde-bluetooth-smartlocker/daemon`).
 - **Flat `src/`** — no per-module subdirs; headers under `include/smartlocker/` mirror `src/` 1:1.
 - **Two runtime entry paths**, not one GUI app: headless daemon (`main.cpp`, systemd) + Plasma QML frontend (`main.qml` via `SmartLockerClient`).
-- **Version defined in 4 places** that must stay in sync: `CMakeLists.txt`, `flake.nix`, `src/main.cpp`, `plasmoid/metadata.json`. Pre-commit hook (`scripts/check-version.sh`) enforces it.
-- **Every change bumps the version** — no change lands without a version increase. Features/behavior changes → minor bump (`0.1.0` → `0.2.0`); bugfixes → patch bump (`0.1.0` → `0.1.1`). Bump all 4 places in the same commit.
+- **Version defined in 4 places** that must stay in sync: `CMakeLists.txt`, `flake.nix`, `src/main.cpp`, `plasmoid/metadata.json`. Checked by `scripts/check-version.sh`, wired as `.githooks/pre-commit` (opt-in per clone via `git config core.hooksPath .githooks`); CI runs the same checker on every push and pull request.
+- **Every change bumps the version** — no change lands without a version increase. Features/behavior changes → minor bump (`0.13.2` → `0.14.0`); bugfixes → patch bump (`0.13.2` → `0.13.3`). Bump all 4 places in the same commit.
 - `Q_LOGGING_CATEGORY` under `org.kde.smartlocker` for daemon, `org.kde.smartlocker.main` for main.
 
 ## ANTI-PATTERNS (THIS PROJECT)

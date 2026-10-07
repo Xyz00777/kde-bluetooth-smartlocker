@@ -111,7 +111,13 @@ The application version is defined in four places that must stay in sync:
 - `src/main.cpp` — `setApplicationVersion("...")`
 - `plasmoid/metadata.json` — `"Version": "..."`
 
-A pre-commit hook (`scripts/check-version.sh`, wired through `.githooks/pre-commit`) aborts any commit where these disagree. The repository sets `core.hooksPath` to `.githooks`, which overrides any global hooks path. When bumping the version, update all four sources in the same commit.
+A pre-commit hook (`.githooks/pre-commit`, which invokes `scripts/check-version.sh`) aborts any commit where these disagree. The hook only runs if git's `core.hooksPath` points at `.githooks`, and that setting lives in the local `.git/config` of each clone, where git cannot track it. Enable the hook per clone with:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+That local setting overrides any global hooks path. Regardless of the hook, CI runs `./scripts/check-version.sh` on every push and pull request, so a version mismatch fails the build either way. When bumping the version, update all four sources in the same commit.
 
 Run the checker manually with:
 
