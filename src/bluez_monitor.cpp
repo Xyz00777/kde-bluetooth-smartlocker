@@ -10,6 +10,7 @@
 #include <QDBusReply>
 #include <QLoggingCategory>
 
+#include <algorithm>
 #include <iterator>
 #include <utility>
 
@@ -320,21 +321,33 @@ void BluezMonitor::onInterfacesRemoved(const QDBusObjectPath& path, const QStrin
         return;
     }
     const auto macIt = pathToMac_.constFind(path.path());
-    if (macIt != pathToMac_.cend()) {
-        const QString mac = macIt.value();
-        // BlueZ dropping a Device1 is definitive absence. macToPaths_ is cleared below, so
-        // the following enumeration's previous-vs-current diff can no longer see the device
-        // and would stay silent; without this the away countdown would never start.
-        emit deviceObserved(mac, false, 0, false);
-        pathToMac_.erase(macIt);
-        pathConnectionStates_.remove(path.path());
+    if (macIt == pathToMac_.cend()) {
+        // The path is not mapped, so it cannot be attributed to an address, but the object
+        // set did change: re-enumerate rather than leaving the caches unreconciled.
+        enumerateDevices();
+        return;
+    }
+    const QString mac = macIt.value();
+    pathToMac_.erase(macIt);
+    pathConnectionStates_.remove(path.path());
+    auto paths = macToPaths_.find(mac);
+    if (paths != macToPaths_.end()) {
+        paths->erase(std::remove(paths->begin(), paths->end(), path.path()), paths->end());
+    }
+    if (paths == macToPaths_.end() || paths->isEmpty()) {
+        // The last path for this address is gone, so BlueZ dropping it is definitive absence.
+        // It is reported explicitly because the enumeration below can no longer see the device
+        // in its previous-vs-current diff, and without this the away countdown never starts.
         macToPaths_.remove(mac);
         deviceNames_.remove(mac);
         connectionStates_.remove(mac);
         everConnected_.remove(mac);
         lastRssi_.remove(mac);
-        enumerateDevices();
+        emit deviceObserved(mac, false, 0, false);
     }
+    // When another path for the same address survives, presence is the union over the
+    // remaining objects; the enumeration recomputes it and reports only a real change.
+    enumerateDevices();
 }
 
 }

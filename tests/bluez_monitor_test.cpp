@@ -380,6 +380,37 @@ int main(int argc, char* argv[]) {
     check(waitForObservation(observed, kMac, false), "InterfacesRemoved reports absence");
     check(monitor.deviceName(kMac).isEmpty(), "InterfacesRemoved prunes the cached name");
 
+    // Removing ONE of two paths for the same address must not report absence: presence is the
+    // union, so the surviving object still holds the device present.
+    observed.clear();
+    publish(fake, twoPaths(true, true));
+    check(waitForObservation(observed, kMac, true), "both duplicate paths present before removal");
+    spinFor(150);
+    publish(fake, twoPaths(false, true));
+    QMetaObject::invokeMethod(fake, "emitInterfacesRemoved", Qt::BlockingQueuedConnection,
+                              Q_ARG(QDBusObjectPath, QDBusObjectPath(kDevicePath)),
+                              Q_ARG(QStringList, QStringList{QStringLiteral("org.bluez.Device1")}));
+    spinFor(600);
+    for (const QList<QVariant>& call : observed) {
+        check(call.at(1).toBool(), "removing one of several paths never reports absence");
+    }
+    check(monitor.deviceName(kMac) == QStringLiteral("DualAdapter"), "name survives removal of one path");
+
+    // Removing the last remaining path does report absence. Drive to absent first so the
+    // following appearance is a real transition rather than a no-op.
+    observed.clear();
+    publish(fake, BluezObjects{});
+    check(waitForObservation(observed, kMac, false), "device absent before the final removal");
+    observed.clear();
+    publish(fake, singleDevice(deviceProperties(true, 0, QStringLiteral("Last"))));
+    check(waitForObservation(observed, kMac, true), "device present before the final removal");
+    spinFor(150);
+    publish(fake, BluezObjects{});
+    QMetaObject::invokeMethod(fake, "emitInterfacesRemoved", Qt::BlockingQueuedConnection,
+                              Q_ARG(QDBusObjectPath, QDBusObjectPath(kDevicePath)),
+                              Q_ARG(QStringList, QStringList{QStringLiteral("org.bluez.Device1")}));
+    check(waitForObservation(observed, kMac, false), "removing the last path reports absence");
+
     // InterfacesAdded discovers a device that appears.
     observed.clear();
     publish(fake, singleDevice(deviceProperties(true, 0, QStringLiteral("Added"))));
