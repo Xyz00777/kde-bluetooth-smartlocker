@@ -15,7 +15,9 @@
             pname = "kde-bluetooth-smartlocker";
             version = "0.14.0";
             src = self;
-            nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.qt6.wrapQtAppsHook ];
+            # dbus is needed by the test suite, which runs a private message bus so BlueZ
+            # signals are actually routed rather than dropped by a peer-to-peer endpoint.
+            nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.dbus pkgs.qt6.wrapQtAppsHook ];
             buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
             cmakeFlags = [ "-DBUILD_TESTING=ON" ];
             doCheck = true;

@@ -8,13 +8,14 @@
 #include <QDBusInterface>
 #include <QDBusMetaType>
 #include <QDBusReply>
-#include <QDBusServer>
 #include <QElapsedTimer>
+#include <QProcess>
 #include <QSignalSpy>
 #include <QThread>
 
 #include <cstdio>
 #include <cstdlib>
+#include <utility>
 
 namespace {
 
@@ -49,9 +50,12 @@ bool waitForObservation(QSignalSpy& spy, const QString& mac, const bool connecte
     return false;
 }
 
-QVariantMap deviceProperties(const bool connected, const int rssi, const QString& alias, const QString& name) {
+const QString kMac = QStringLiteral("AA:BB:CC:DD:EE:FF");
+const QString kDevicePath = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+
+QVariantMap deviceProperties(const bool connected, const int rssi, const QString& alias) {
     QVariantMap properties;
-    properties.insert(QStringLiteral("Address"), QStringLiteral("AA:BB:CC:DD:EE:FF"));
+    properties.insert(QStringLiteral("Address"), kMac);
     properties.insert(QStringLiteral("Paired"), true);
     properties.insert(QStringLiteral("Trusted"), true);
     properties.insert(QStringLiteral("Connected"), connected);
@@ -61,9 +65,6 @@ QVariantMap deviceProperties(const bool connected, const int rssi, const QString
     if (!alias.isNull()) {
         properties.insert(QStringLiteral("Alias"), alias);
     }
-    if (!name.isNull()) {
-        properties.insert(QStringLiteral("Name"), name);
-    }
     return properties;
 }
 
@@ -72,31 +73,24 @@ BluezInterfaces deviceInterface(const QVariantMap& properties) {
 }
 
 BluezObjects singleDevice(const QVariantMap& properties) {
-    return BluezObjects{
-        {QDBusObjectPath(QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF")), deviceInterface(properties)}};
+    return BluezObjects{{QDBusObjectPath(kDevicePath), deviceInterface(properties)}};
 }
 
 BluezObjects twoPaths(const bool firstConnected, const bool secondConnected) {
-    const QString mac = QStringLiteral("AA:BB:CC:DD:EE:FF");
     return BluezObjects{
-        {QDBusObjectPath(QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF")),
-         deviceInterface({{QStringLiteral("Address"), mac}, {QStringLiteral("Paired"), true},
+        {QDBusObjectPath(kDevicePath),
+         deviceInterface({{QStringLiteral("Address"), kMac}, {QStringLiteral("Paired"), true},
                           {QStringLiteral("Trusted"), true}, {QStringLiteral("Connected"), firstConnected},
                           {QStringLiteral("Alias"), QStringLiteral("DualAdapter")}})},
         {QDBusObjectPath(QStringLiteral("/org/bluez/hci1/dev_AA_BB_CC_DD_EE_FF")),
-         deviceInterface({{QStringLiteral("Address"), mac}, {QStringLiteral("Paired"), true},
-                          {QStringLiteral("Trusted"), true}, {QStringLiteral("Connected"), secondConnected}})},
+         deviceInterface({{QStringLiteral("Address"), kMac}, {QStringLiteral("Paired"), true},
+                          {QStringLiteral("Trusted"), true}, {QStringLiteral("Connected"), secondConnected},
+                          {QStringLiteral("Alias"), QStringLiteral("DualAdapter")}})},
     };
 }
 
-const QString kMac = QStringLiteral("AA:BB:CC:DD:EE:FF");
-
-// org.bluez stand-in.
-//
-// It owns both the QDBusServer and the exported object and lives entirely on a
-// worker thread: BluezMonitor issues a BLOCKING GetManagedObjects, so a fake sharing
-// the caller's event loop would deadlock, and Qt requires an exported object and the
-// connection that dispatches to it to share a thread.
+// org.bluez stand-in, split across two objects because BlueZ exposes the object manager and
+// the properties interface as separate D-Bus interfaces.
 class FakeBluez final : public QObject, protected QDBusContext {
     Q_OBJECT
     Q_CLASSINFO("D-Bus Interface", "org.freedesktop.DBus.ObjectManager")
@@ -115,44 +109,85 @@ public slots:
 
     void publish(const BluezObjects& objects) { objects_ = objects; }
     void setFailWithError(const bool value) { failWithError_ = value; }
+    void emitInterfacesAdded(const QDBusObjectPath& path, const BluezInterfaces& interfaces) {
+        Q_EMIT InterfacesAdded(path, interfaces);
+    }
+    void emitInterfacesRemoved(const QDBusObjectPath& path, const QStringList& interfaces) {
+        Q_EMIT InterfacesRemoved(path, interfaces);
+    }
+
+signals:
+    void InterfacesAdded(const QDBusObjectPath& path, const BluezInterfaces& interfaces);
+    void InterfacesRemoved(const QDBusObjectPath& path, const QStringList& interfaces);
 
 private:
     BluezObjects objects_;
     bool failWithError_{false};
 };
 
-class FakeBusWorker final : public QThread {
+class FakeProperties final : public QObject {
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.freedesktop.DBus.Properties")
+
+public:
+    using QObject::QObject;
+
+public slots:
+    void emitChanged(const QString& interfaceName, const QVariantMap& changed) {
+        Q_EMIT PropertiesChanged(interfaceName, changed, QStringList{});
+    }
+
+signals:
+    void PropertiesChanged(const QString& interfaceName, const QVariantMap& changed, const QStringList& invalidated);
+};
+
+// Owns the org.bluez name and exports the fakes.
+//
+// It runs on its own thread because BluezMonitor issues a BLOCKING GetManagedObjects: a fake
+// sharing the caller's event loop would deadlock. It also needs a real bus rather than a
+// peer-to-peer QDBusServer, because a peer endpoint has no message bus to route signals, so
+// PropertiesChanged/InterfacesAdded/InterfacesRemoved would silently never arrive.
+class FakeBluezService final : public QThread {
     Q_OBJECT
 
 public:
-    QString address() const { return address_; }
+    explicit FakeBluezService(QString busAddress) : busAddress_(std::move(busAddress)) {}
+
     bool ready() const { return ready_; }
-    FakeBluez* fake() const { return fake_; }
+    bool failed() const { return failed_; }
+    FakeBluez* manager() const { return manager_; }
+    FakeProperties* properties() const { return properties_; }
 
 protected:
     void run() override {
-        auto* server = new QDBusServer(QStringLiteral("unix:tmpdir=/tmp"));
-        if (!server->isConnected()) {
+        QDBusConnection bus = QDBusConnection::connectToBus(busAddress_, QStringLiteral("fake-bluez"));
+        if (!bus.isConnected()) {
+            failed_ = true;
             return;
         }
-        auto* fake = new FakeBluez;
-        connect(server, &QDBusServer::newConnection, fake, [fake](QDBusConnection incoming) {
-            incoming.registerObject(QStringLiteral("/"), fake, QDBusConnection::ExportScriptableSlots);
-        });
-        {
-            QMutexLocker locker(&mutex_);
-            fake_ = fake;
-            address_ = server->address();
-            ready_ = true;
+        auto* manager = new FakeBluez;
+        auto* properties = new FakeProperties;
+        // The properties object must sit at the device object path: BluezMonitor resolves
+        // the device from message.path() and re-enumerates for anything else.
+        if (!bus.registerObject(QStringLiteral("/"), manager,
+                                QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportAllSignals)
+            || !bus.registerObject(kDevicePath, properties, QDBusConnection::ExportAllSignals)
+            || !bus.registerService(QStringLiteral("org.bluez"))) {
+            failed_ = true;
+            return;
         }
+        manager_ = manager;
+        properties_ = properties;
+        ready_ = true;
         exec();
     }
 
 private:
-    QMutex mutex_;
-    FakeBluez* fake_{nullptr};
-    QString address_;
+    QString busAddress_;
+    FakeBluez* manager_{nullptr};
+    FakeProperties* properties_{nullptr};
     bool ready_{false};
+    bool failed_{false};
 };
 
 void publish(FakeBluez* fake, const BluezObjects& objects) {
@@ -161,6 +196,16 @@ void publish(FakeBluez* fake, const BluezObjects& objects) {
 
 void setFail(FakeBluez* fake, const bool value) {
     QMetaObject::invokeMethod(fake, "setFailWithError", Qt::BlockingQueuedConnection, Q_ARG(bool, value));
+}
+
+void emitChanged(FakeProperties* properties, const QVariantMap& changed) {
+    QMetaObject::invokeMethod(properties, "emitChanged", Qt::BlockingQueuedConnection,
+                              Q_ARG(QString, QStringLiteral("org.bluez.Device1")), Q_ARG(QVariantMap, changed));
+}
+
+void emitAdded(FakeBluez* fake, const QDBusObjectPath& path, const BluezInterfaces& interfaces) {
+    QMetaObject::invokeMethod(fake, "emitInterfacesAdded", Qt::BlockingQueuedConnection,
+                              Q_ARG(QDBusObjectPath, path), Q_ARG(BluezInterfaces, interfaces));
 }
 
 } // namespace
@@ -173,38 +218,43 @@ int main(int argc, char* argv[]) {
     QCoreApplication app(argc, argv);
     qDBusRegisterMetaType<BluezObjects>();
 
-    FakeBusWorker worker;
-    worker.start();
-    for (int i = 0; i < 400 && !worker.ready(); ++i) {
+    QProcess daemon;
+    daemon.start(QStringLiteral("dbus-daemon"), {QStringLiteral("--session"), QStringLiteral("--nofork"),
+                                                 QStringLiteral("--print-address")});
+    if (!daemon.waitForStarted(5000)) {
+        std::printf("FAIL: could not start a private dbus-daemon\n");
+        return 1;
+    }
+    if (!daemon.waitForReadyRead(5000)) {
+        std::printf("FAIL: dbus-daemon did not print an address\n");
+        return 1;
+    }
+    const QString busAddress = QString::fromLocal8Bit(daemon.readAllStandardOutput()).trimmed();
+    if (!busAddress.startsWith(QLatin1String("unix:"))) {
+        std::printf("FAIL: unexpected bus address '%s'\n", qUtf8Printable(busAddress));
+        return 1;
+    }
+
+    FakeBluezService service(busAddress);
+    service.start();
+    for (int i = 0; i < 400 && !service.ready() && !service.failed(); ++i) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
         QThread::msleep(5);
     }
-    if (!worker.ready()) {
-        std::printf("FAIL: fake bus never became ready\n");
+    if (!service.ready()) {
+        std::printf("FAIL: fake org.bluez service never registered\n");
+        daemon.kill();
         return 1;
     }
+    FakeBluez* fake = service.manager();
+    FakeProperties* fakeProperties = service.properties();
 
-    QDBusConnection bus = QDBusConnection::connectToPeer(worker.address(), QStringLiteral("org.bluez"));
+    QDBusConnection bus = QDBusConnection::connectToBus(busAddress, QStringLiteral("bluez-monitor-test"));
     if (!bus.isConnected()) {
-        std::printf("FAIL: peer connection not established\n");
+        std::printf("FAIL: client could not connect to the private bus\n");
         return 1;
     }
-    FakeBluez* fake = worker.fake();
-    // Wait for the server side to accept and export before issuing blocking calls.
-    spinFor(300);
-
-    {
-        QDBusInterface probe(QStringLiteral("org.bluez"), QStringLiteral("/"),
-                             QStringLiteral("org.freedesktop.DBus.ObjectManager"), bus);
-        probe.setTimeout(3000);
-        publish(fake, singleDevice(deviceProperties(true, -55, QStringLiteral("Probe"), QString())));
-        const QDBusReply<BluezObjects> reply = probe.call(QStringLiteral("GetManagedObjects"));
-        if (!reply.isValid()) {
-            std::printf("FAIL: fake bus does not answer GetManagedObjects: %s\n",
-                        reply.error().message().toStdString().c_str());
-            return 1;
-        }
-    }
+    spinFor(200);
 
     smartlocker::BluezMonitor monitor(nullptr, bus);
     monitor.setRefreshInterval(30);
@@ -212,7 +262,9 @@ int main(int argc, char* argv[]) {
     QSignalSpy availability(&monitor, &smartlocker::BluezMonitor::availabilityChanged);
 
     // A single connected device is present, and an empty Alias falls back to Name.
-    publish(fake, singleDevice(deviceProperties(true, -55, QStringLiteral(""), QStringLiteral("FallbackName"))));
+    QVariantMap withEmptyAlias = deviceProperties(true, -55, QStringLiteral(""));
+    withEmptyAlias.insert(QStringLiteral("Name"), QStringLiteral("FallbackName"));
+    publish(fake, singleDevice(withEmptyAlias));
     monitor.start({}, true);
     check(waitForObservation(observed, kMac, true), "single connected device reported present");
     check(monitor.deviceName(kMac) == QStringLiteral("FallbackName"), "empty Alias falls back to Name");
@@ -223,24 +275,17 @@ int main(int argc, char* argv[]) {
     spinFor(250);
     check(observed.count() == 0, "unchanged re-enumeration emits no duplicate observation");
 
-    // Both duplicate paths disconnected: absent.
+    // Presence is the union across duplicate paths, not "last path wins".
     observed.clear();
     publish(fake, twoPaths(false, false));
     check(waitForObservation(observed, kMac, false), "both duplicates disconnected reports absence");
-
-    // Only the FIRST path connected. A last-path-wins implementation would read the
-    // second (disconnected) object here and wrongly report absence.
     observed.clear();
     publish(fake, twoPaths(true, false));
     check(waitForObservation(observed, kMac, true), "presence is the union across duplicate paths");
-
-    // Now only the second path is connected: still present, so nothing changed.
     observed.clear();
     publish(fake, twoPaths(false, true));
     spinFor(250);
     check(observed.count() == 0, "union stays stable when the connected path changes");
-
-    // Back to both disconnected.
     observed.clear();
     publish(fake, twoPaths(false, false));
     check(waitForObservation(observed, kMac, false), "losing the last connected path reports absence");
@@ -249,26 +294,78 @@ int main(int argc, char* argv[]) {
     observed.clear();
     publish(fake, BluezObjects{});
     check(waitForObservation(observed, kMac, false), "device removed entirely reports absence");
-    spinFor(150);
+    spinFor(200);
     check(monitor.deviceName(kMac).isEmpty(), "vanished device name is pruned");
     observed.clear();
     spinFor(250);
     check(observed.count() == 0, "steady empty enumeration stays silent");
 
+    // PropertiesChanged on the connected path applies both Connected and RSSI.
+    observed.clear();
+    publish(fake, singleDevice(deviceProperties(false, 0, QStringLiteral("Sig"))));
+    check(waitForObservation(observed, kMac, false), "disconnected single path before the signal test");
+    observed.clear();
+    emitChanged(fakeProperties, {{QStringLiteral("Connected"), true}, {QStringLiteral("RSSI"), -61}});
+    check(waitForObservation(observed, kMac, true), "PropertiesChanged applies Connected");
+    bool sawRssi = false;
+    for (const QList<QVariant>& call : observed) {
+        if (call.at(3).toBool()) {
+            sawRssi = true;
+            check(call.at(2).toInt() == -61, "the reported RSSI value is the one that arrived");
+        }
+    }
+    check(sawRssi, "PropertiesChanged delivers the RSSI reading for a connected path");
+
+    // Once disconnected, a later RSSI update must not be reported as usable.
+    observed.clear();
+    emitChanged(fakeProperties, {{QStringLiteral("Connected"), false}});
+    check(waitForObservation(observed, kMac, false), "PropertiesChanged applies disconnect");
+    observed.clear();
+    emitChanged(fakeProperties, {{QStringLiteral("RSSI"), -42}});
+    spinFor(250);
+    for (const QList<QVariant>& call : observed) {
+        check(!call.at(3).toBool(), "RSSI is not reported as usable while the path is disconnected");
+    }
+
+    // InterfacesRemoved reports absence and prunes the cached name. The signal and the
+    // object store must agree, exactly as BlueZ behaves, otherwise the re-enumeration that
+    // follows the signal would immediately re-report the device. This step needs a generous
+    // budget: emitting the signal blocks the calling thread, so the in-flight enumeration
+    // reply is only handled once the blocking invocation returns.
+    observed.clear();
+    publish(fake, singleDevice(deviceProperties(true, 0, QStringLiteral("Gone"))));
+    check(waitForObservation(observed, kMac, true), "device back before InterfacesRemoved");
+    check(monitor.deviceName(kMac) == QStringLiteral("Gone"), "name cached before InterfacesRemoved");
+    observed.clear();
+    publish(fake, BluezObjects{});
+    QMetaObject::invokeMethod(fake, "emitInterfacesRemoved", Qt::BlockingQueuedConnection,
+                              Q_ARG(QDBusObjectPath, QDBusObjectPath(kDevicePath)),
+                              Q_ARG(QStringList, QStringList{QStringLiteral("org.bluez.Device1")}));
+    spinFor(600);
+    check(waitForObservation(observed, kMac, false), "InterfacesRemoved reports absence");
+    check(monitor.deviceName(kMac).isEmpty(), "InterfacesRemoved prunes the cached name");
+
+    // InterfacesAdded discovers a device that appears.
+    observed.clear();
+    publish(fake, singleDevice(deviceProperties(true, 0, QStringLiteral("Added"))));
+    emitAdded(fake, QDBusObjectPath(kDevicePath), deviceInterface(deviceProperties(true, 0, QStringLiteral("Added"))));
+    check(waitForObservation(observed, kMac, true), "InterfacesAdded discovers an appearing device");
+    spinFor(150);
+    check(monitor.deviceName(kMac) == QStringLiteral("Added"), "InterfacesAdded picks the name back up");
+
     // A failing reply must not fabricate observations or wipe the known device set.
     observed.clear();
-    publish(fake, singleDevice(deviceProperties(true, -50, QStringLiteral("KeptName"), QString())));
-    check(waitForObservation(observed, kMac, true), "device present before the failure");
-    check(monitor.deviceName(kMac) == QStringLiteral("KeptName"), "name cached before the failure");
-    observed.clear();
+    spinFor(200);
     setFail(fake, true);
     spinFor(300);
     check(observed.count() == 0, "failed reply does not fabricate observations");
-    check(monitor.deviceName(kMac) == QStringLiteral("KeptName"), "failed reply keeps the previous device set");
+    check(monitor.deviceName(kMac) == QStringLiteral("Added"), "failed reply keeps the previous device set");
     setFail(fake, false);
 
-    worker.quit();
-    worker.wait(3000);
+    service.quit();
+    service.wait(3000);
+    daemon.kill();
+    daemon.waitForFinished(2000);
 
     if (failures == 0) {
         std::printf("all bluez monitor checks passed\n");

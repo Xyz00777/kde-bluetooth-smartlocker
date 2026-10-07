@@ -322,6 +322,10 @@ void BluezMonitor::onInterfacesRemoved(const QDBusObjectPath& path, const QStrin
     const auto macIt = pathToMac_.constFind(path.path());
     if (macIt != pathToMac_.cend()) {
         const QString mac = macIt.value();
+        // BlueZ dropping a Device1 is definitive absence. macToPaths_ is cleared below, so
+        // the following enumeration's previous-vs-current diff can no longer see the device
+        // and would stay silent; without this the away countdown would never start.
+        emit deviceObserved(mac, false, 0, false);
         pathToMac_.erase(macIt);
         pathConnectionStates_.remove(path.path());
         macToPaths_.remove(mac);
