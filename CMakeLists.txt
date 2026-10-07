@@ -61,6 +61,15 @@ if(BUILD_TESTING)
     target_include_directories(bluez-monitor-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     target_compile_options(bluez-monitor-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     add_test(NAME bluez-monitor-test COMMAND bluez-monitor-test)
+    add_executable(lock-verification-test
+        tests/lock_verification_test.cpp
+        include/smartlocker/session_lock_state.hpp
+    )
+    set_target_properties(lock-verification-test PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    target_link_libraries(lock-verification-test PRIVATE smartlocker-state-machine)
+    target_include_directories(lock-verification-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_options(lock-verification-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    add_test(NAME lock-verification-test COMMAND lock-verification-test)
     add_test(NAME daemon-version COMMAND kde-bluetooth-smartlocker --version)
     add_test(NAME daemon-policy-options COMMAND kde-bluetooth-smartlocker --away-seconds 15 --minimum-present 1 --version)
     add_test(NAME daemon-zero-second-options COMMAND kde-bluetooth-smartlocker --away-seconds 0 --resume-grace-seconds 0 --version)

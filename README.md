@@ -7,7 +7,7 @@ Lock-only Bluetooth presence daemon for KDE Plasma 6, Quickshell, and desktop en
 - No automatic unlock path exists.
 - Startup/controller failures do not immediately lock.
 - Runtime absence locks only after the configured grace period.
-- A failed lock command is retried after the away duration; a background verifier re-arms locking if the session never actually locks.
+- A failed lock command is retried after the away duration; a background verifier re-arms locking if the session never actually locks. An unverifiable session counts as "not proven locked" rather than as success, so a lock that silently failed cannot leave the screen unlocked forever.
 - Mutating D-Bus calls (`SetEnabled`, `Snooze`, device toggles, RSSI thresholds) are rejected while the session is locking or locked.
 - Global and per-device disable state is persisted with `QSettings`.
 - RSSI thresholds support averaging and hysteresis; stale RSSI never keeps a disconnected device "present".

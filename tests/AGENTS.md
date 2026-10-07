@@ -8,6 +8,7 @@ Two hand-written C++ test executables: `state_machine_test.cpp` covering the pur
 |------|------|-------|
 | State-machine unit tests | `state_machine_test.cpp` | lock latch, snooze, resume grace, RSSI hysteresis, disabled, device removal |
 | BlueZ monitor tests | `bluez_monitor_test.cpp` | `PropertiesChanged`, `InterfacesAdded`/`InterfacesRemoved`, duplicate-path union, stale RSSI, name pruning, empty-Alias fallback, failed replies, configured-but-absent devices |
+| Lock verification | `lock_verification_test.cpp` | the pure fail-open rule in `decideLockVerification()` |
 | Lock execution | `lock_path_test.sh` | runs the real daemon to the lock path with a recording lock command |
 
 ## CONVENTIONS
@@ -16,10 +17,10 @@ Two hand-written C++ test executables: `state_machine_test.cpp` covering the pur
 - Deterministic time: tests pass explicit `TimePoint` values, never wall-clock.
 
 ## COVERAGE GAPS (known)
-- `daemon.cpp` D-Bus methods, QSettings persistence, and notifications — **no direct tests**. Only the lock execution path is covered end to end.
+- `daemon.cpp` D-Bus methods, QSettings persistence, and notifications — **no direct tests**. The fail-open lock verification rule is covered via the pure `decideLockVerification()`, but the Qt code that calls it is not.
 - `qml_plugin.cpp` + both QML files — **no QMLTest/UI automation**.
 - CLI tests mostly invoke `--version`; they validate parsing, not runtime behavior.
-- `lock_path_test.sh` needs a real `org.bluez` on the **system** bus with a powered adapter, so it skips meaninglessly where BlueZ is absent.
+- `lock_path_test.sh` needs a real `org.bluez` on the **system** bus with a powered adapter, so it skips where BlueZ is absent.
 - Real Plasma-session lock and rendered visual QA are **deployment checks**, not automated tests.
 
 ## COMMANDS

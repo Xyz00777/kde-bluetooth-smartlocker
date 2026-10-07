@@ -22,13 +22,7 @@ TimePoint now() {
     return std::chrono::steady_clock::now();
 }
 
-enum class SessionLockState {
-    Unlocked,
-    Locked,
-    Unknown,
-};
-
-SessionLockState sessionLockState() {
+SessionLockState querySessionLockState() {
     QDBusInterface login1{"org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
                           QDBusConnection::systemBus()};
     login1.setTimeout(2000);
@@ -276,7 +270,7 @@ QVariantMap Daemon::DeviceSettings() const {
 }
 
 bool Daemon::SetEnabled(const bool enabled) {
-    if (sessionLockState() != SessionLockState::Unlocked) {
+    if (querySessionLockState() != SessionLockState::Unlocked) {
         return false;
     }
     machine_.setEnabled(enabled, now());
@@ -288,7 +282,7 @@ bool Daemon::SetEnabled(const bool enabled) {
 }
 
 bool Daemon::SetDeviceEnabled(const QString& path, const bool enabled) {
-    if (sessionLockState() != SessionLockState::Unlocked) {
+    if (querySessionLockState() != SessionLockState::Unlocked) {
         return false;
     }
     const QString mac = resolveMac(path);
@@ -304,7 +298,7 @@ bool Daemon::SetDeviceEnabled(const QString& path, const bool enabled) {
 }
 
 bool Daemon::SetDeviceRssiThreshold(const QString& path, const int thresholdDbm) {
-    if (sessionLockState() != SessionLockState::Unlocked) {
+    if (querySessionLockState() != SessionLockState::Unlocked) {
         return false;
     }
     const QString mac = resolveMac(path);
@@ -323,7 +317,7 @@ bool Daemon::SetDeviceRssiThreshold(const QString& path, const int thresholdDbm)
 }
 
 bool Daemon::Snooze(const int seconds) {
-    if (sessionLockState() != SessionLockState::Unlocked) {
+    if (querySessionLockState() != SessionLockState::Unlocked) {
         return false;
     }
     if (seconds <= 0 || seconds > machine_.snoozeDurationCap().count()) {
@@ -405,27 +399,27 @@ void Daemon::advance() {
 }
 
 void Daemon::verifyLockApplied() {
+    const SessionLockState sessionState = querySessionLockState();
+    const LockVerification decision =
+        decideLockVerification(machine_.state(), sessionState, lockProcess_.state() != QProcess::NotRunning);
+
     if (machine_.state() != MachineState::Locked) {
         unverifiableLockLogged_ = false;
         return;
     }
-    const SessionLockState lockState = sessionLockState();
-    if (lockState == SessionLockState::Unknown) {
-        if (!unverifiableLockLogged_) {
-            qCWarning(smartLockerLog) << "cannot verify that the session locked; leaving the lock asserted";
-            unverifiableLockLogged_ = true;
-        }
+    if (sessionState == SessionLockState::Unknown && !unverifiableLockLogged_) {
+        qCWarning(smartLockerLog) << "cannot verify that the session locked; will retry";
+    }
+    unverifiableLockLogged_ = sessionState == SessionLockState::Unknown;
+
+    if (decision != LockVerification::ClearLatch) {
         return;
     }
-    unverifiableLockLogged_ = false;
-    if (lockState == SessionLockState::Locked) {
-        return;
-    }
-    if (lockProcess_.state() == QProcess::NotRunning) {
+    if (sessionState != SessionLockState::Unknown) {
         qCWarning(smartLockerLog) << "lock command succeeded but session is not locked; retrying";
-        machine_.clearLocked(now());
-        publishState();
     }
+    machine_.clearLocked(now());
+    publishState();
 }
 
 void Daemon::publishState() {

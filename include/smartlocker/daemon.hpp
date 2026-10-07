@@ -1,6 +1,7 @@
 #pragma once
 
 #include "smartlocker/bluez_monitor.hpp"
+#include "smartlocker/session_lock_state.hpp"
 #include "smartlocker/state_machine.hpp"
 
 #include <QSet>
