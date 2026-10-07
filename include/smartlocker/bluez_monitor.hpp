@@ -35,12 +35,14 @@ private slots:
 
 private:
     void enumerateDevices();
+    [[nodiscard]] bool macConnected(const QString& mac) const;
 
     QDBusConnection bus_;
     QMap<QString, bool> connectionStates_;
+    QMap<QString, bool> pathConnectionStates_;
     QMap<QString, bool> everConnected_;
     QMap<QString, int> lastRssi_;
-    QMap<QString, QString> macToPath_;
+    QMap<QString, QStringList> macToPaths_;
     QMap<QString, QString> pathToMac_;
     QMap<QString, QString> deviceNames_;
     QSet<QString> watchedMacs_;

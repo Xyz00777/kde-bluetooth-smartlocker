@@ -9,6 +9,8 @@
 #include <QDBusReply>
 #include <QLoggingCategory>
 
+#include <iterator>
+
 using BluezInterfaces = QMap<QString, QVariantMap>;
 using BluezObjects = QMap<QDBusObjectPath, BluezInterfaces>;
 Q_DECLARE_METATYPE(BluezObjects)
@@ -37,11 +39,12 @@ void BluezMonitor::onServiceRegistered(const QString&) {
 }
 
 void BluezMonitor::onServiceUnregistered(const QString&) {
-    const QStringList previouslyResolved = macToPath_.keys();
+    const QStringList previouslyResolved = macToPaths_.keys();
     connectionStates_.clear();
+    pathConnectionStates_.clear();
     everConnected_.clear();
     lastRssi_.clear();
-    macToPath_.clear();
+    macToPaths_.clear();
     pathToMac_.clear();
     deviceNames_.clear();
     for (const QString& mac : previouslyResolved) {
@@ -89,7 +92,7 @@ void BluezMonitor::enumerateDevices() {
     }
     const BluezObjects objects = qdbus_cast<BluezObjects>(reply.arguments().constFirst());
     bool hasAdapter = false;
-    QMap<QString, QString> nextMacToPath;
+    QMap<QString, QStringList> nextMacToPaths;
     for (auto object = objects.cbegin(); object != objects.cend(); ++object) {
         const auto adapter = object.value().constFind("org.bluez.Adapter1");
         if (adapter != object.value().cend() && adapter.value().value("Powered", true).toBool()) {
@@ -108,14 +111,14 @@ void BluezMonitor::enumerateDevices() {
         const QString macId = QString::fromStdString(*mac);
         if (autoSelect_ ? autoSelectedDevice(properties.value("Paired").toBool(), properties.value("Trusted").toBool())
                         : watchedMacs_.contains(macId)) {
-            nextMacToPath.insert(macId, object.key().path());
+            nextMacToPaths[macId].append(object.key().path());
         }
     }
     emit availabilityChanged(hasAdapter);
     QSet<QString> previous;
     QSet<QString> current;
-    for (auto it = macToPath_.cbegin(); it != macToPath_.cend(); ++it) previous.insert(it.key());
-    for (auto it = nextMacToPath.cbegin(); it != nextMacToPath.cend(); ++it) current.insert(it.key());
+    for (auto it = macToPaths_.cbegin(); it != macToPaths_.cend(); ++it) previous.insert(it.key());
+    for (auto it = nextMacToPaths.cbegin(); it != nextMacToPaths.cend(); ++it) current.insert(it.key());
     for (const QString& mac : previous - current) {
         emit deviceObserved(mac, false, 0, false);
     }
@@ -132,36 +135,74 @@ void BluezMonitor::enumerateDevices() {
     } else {
         reportedAbsent_.clear();
     }
-    macToPath_ = nextMacToPath;
+    macToPaths_ = nextMacToPaths;
     pathToMac_.clear();
-    for (auto it = macToPath_.cbegin(); it != macToPath_.cend(); ++it) {
-        pathToMac_.insert(it.value(), it.key());
+    for (auto it = macToPaths_.cbegin(); it != macToPaths_.cend(); ++it) {
+        for (const QString& path : it.value()) {
+            pathToMac_.insert(path, it.key());
+        }
     }
-    const QStringList selected = autoSelect_ ? current.values() : watchedMacs_.values();
+    const QStringList selected = autoSelect_ ? macToPaths_.keys() : watchedMacs_.values();
     emit selectedDevicesChanged(selected);
-    for (auto mapping = macToPath_.cbegin(); mapping != macToPath_.cend(); ++mapping) {
-        const QVariantMap properties = objects.value(QDBusObjectPath{mapping.value()}).value("org.bluez.Device1");
-        const QString name = properties.value("Alias", properties.value("Name")).toString();
-        const QString prev = deviceNames_.value(mapping.key());
+    for (auto mapping = macToPaths_.cbegin(); mapping != macToPaths_.cend(); ++mapping) {
+        const QString mac = mapping.key();
+        // One address can be reachable through several Device1 objects (e.g. paired on
+        // more than one adapter). Presence is the union over those objects, otherwise a
+        // disconnected duplicate would mask a connected one and fabricate an absence.
+        bool connected = false;
+        QString name;
+        bool hasRssi = false;
+        int rssiDbm = 0;
+        for (const QString& path : mapping.value()) {
+            const QVariantMap properties = objects.value(QDBusObjectPath{path}).value("org.bluez.Device1");
+            if (name.isEmpty()) {
+                name = properties.value("Alias", properties.value("Name")).toString();
+            }
+            const bool pathConnected = properties.value("Connected").toBool();
+            pathConnectionStates_.insert(path, pathConnected);
+            if (pathConnected && !connected) {
+                connected = true;
+                if (properties.contains("RSSI")) {
+                    hasRssi = true;
+                    rssiDbm = properties.value("RSSI").toInt();
+                }
+            }
+        }
+        const QString prev = deviceNames_.value(mac);
         if (name.isEmpty()) {
-            deviceNames_.remove(mapping.key());
+            deviceNames_.remove(mac);
         } else {
-            deviceNames_.insert(mapping.key(), name);
+            deviceNames_.insert(mac, name);
         }
         if (name != prev) {
-            emit deviceNameChanged(mapping.key(), name);
+            emit deviceNameChanged(mac, name);
         }
-        const bool connected = properties.value("Connected").toBool();
         if (connected) {
-            everConnected_.insert(mapping.key(), true);
+            everConnected_.insert(mac, true);
         }
-        connectionStates_.insert(mapping.key(), connected);
-        const bool hasRssi = properties.contains("RSSI") && connected;
+        connectionStates_.insert(mac, connected);
         if (hasRssi) {
-            lastRssi_.insert(mapping.key(), properties.value("RSSI").toInt());
+            lastRssi_.insert(mac, rssiDbm);
         }
-        emit deviceObserved(mapping.key(), connected, hasRssi ? properties.value("RSSI").toInt() : 0, hasRssi);
+        emit deviceObserved(mac, connected, rssiDbm, hasRssi);
     }
+    const QSet<QString> livePaths(pathToMac_.cbegin(), pathToMac_.cend());
+    for (auto it = pathConnectionStates_.begin(); it != pathConnectionStates_.end();) {
+        it = livePaths.contains(it.key()) ? std::next(it) : pathConnectionStates_.erase(it);
+    }
+}
+
+bool BluezMonitor::macConnected(const QString& mac) const {
+    const auto it = macToPaths_.constFind(mac);
+    if (it == macToPaths_.cend()) {
+        return false;
+    }
+    for (const QString& path : it.value()) {
+        if (pathConnectionStates_.value(path, false)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantMap& changed, const QStringList& invalidated,
@@ -196,12 +237,13 @@ void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantM
         return;
     }
     if (connected != changed.cend()) {
-        connectionStates_.insert(mac, connected->toBool());
+        pathConnectionStates_.insert(path, connected->toBool());
         if (connected->toBool()) {
             everConnected_.insert(mac, true);
         }
     }
-    const bool isConnected = connectionStates_.value(mac, false);
+    const bool isConnected = macConnected(mac);
+    connectionStates_.insert(mac, isConnected);
     if (rssi != changed.cend() && !(everConnected_.value(mac, false) && !isConnected)) {
         lastRssi_.insert(mac, rssi->toInt());
         emit deviceObserved(mac, isConnected, rssi->toInt(), true);
@@ -229,7 +271,8 @@ void BluezMonitor::onInterfacesRemoved(const QDBusObjectPath& path, const QStrin
     if (macIt != pathToMac_.cend()) {
         const QString mac = macIt.value();
         pathToMac_.erase(macIt);
-        macToPath_.remove(mac);
+        pathConnectionStates_.remove(path.path());
+        macToPaths_.remove(mac);
         deviceNames_.remove(mac);
         connectionStates_.remove(mac);
         everConnected_.remove(mac);
