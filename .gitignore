@@ -2,4 +2,6 @@ result
 build/
 ses_*
 .omo/
+.direnv/
 .codegraph
+PLAN.md
