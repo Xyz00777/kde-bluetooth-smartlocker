@@ -163,10 +163,15 @@ private:
     void watchMutation(const QDBusPendingCall& pending, OnRejected&& onRejected) {
         auto* watcher = new QDBusPendingCallWatcher{pending, this};
         connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher, onRejected = std::forward<OnRejected>(onRejected)]() {
-            const bool rejected = watcher->isError();
-            const QString reason = watcher->error().message();
+            // Every mutator returns bool, and false is a normal policy rejection (locked
+            // session, unwatched device, out-of-range value). That is not a D-Bus error,
+            // so the reply value has to be inspected as well.
+            const QDBusPendingReply<bool> reply = *watcher;
+            const bool failed = reply.isError() || !reply.value();
+            const QString reason =
+                reply.isError() ? reply.error().message() : tr("the change was refused (the session may be locked)");
             watcher->deleteLater();
-            if (rejected) {
+            if (failed) {
                 // Drop the optimistic entry so the next read re-fetches the value the daemon
                 // actually holds, instead of showing a setting that was never applied.
                 onRejected();
