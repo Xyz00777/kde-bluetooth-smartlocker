@@ -411,6 +411,30 @@ int main(int argc, char* argv[]) {
                               Q_ARG(QStringList, QStringList{QStringLiteral("org.bluez.Device1")}));
     check(waitForObservation(observed, kMac, false), "removing the last path reports absence");
 
+    // A reconnect that reports Connected without RSSI must not leave a stale cached reading
+    // behind, otherwise an enumeration restoring the SAME value would look unchanged and the
+    // daemon would never learn RSSI is available again.
+    observed.clear();
+    publish(fake, singleDevice(deviceProperties(true, -55, QStringLiteral("Cycle"))));
+    check(waitForObservation(observed, kMac, true), "device present with RSSI before the cycle");
+    observed.clear();
+    emitChanged(fakeProperties, {{QStringLiteral("Connected"), false}});
+    check(waitForObservation(observed, kMac, false), "disconnect observed");
+    observed.clear();
+    emitChanged(fakeProperties, {{QStringLiteral("Connected"), true}});
+    check(waitForObservation(observed, kMac, true), "reconnect observed");
+    observed.clear();
+    publish(fake, singleDevice(deviceProperties(true, -55, QStringLiteral("Cycle"))));
+    check(waitForObservation(observed, kMac, true), "restored RSSI is re-reported after a reconnect");
+    bool rssiRestored = false;
+    for (const QList<QVariant>& call : observed) {
+        if (call.at(3).toBool()) {
+            rssiRestored = true;
+            check(call.at(2).toInt() == -55, "the restored RSSI value is correct");
+        }
+    }
+    check(rssiRestored, "an unchanged RSSI value is still reported after a disconnect cycle");
+
     // InterfacesAdded discovers a device that appears.
     observed.clear();
     publish(fake, singleDevice(deviceProperties(true, 0, QStringLiteral("Added"))));
