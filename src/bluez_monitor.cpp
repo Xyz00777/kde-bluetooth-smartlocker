@@ -120,6 +120,12 @@ void BluezMonitor::enumerateDevices() {
     for (auto it = macToPaths_.cbegin(); it != macToPaths_.cend(); ++it) previous.insert(it.key());
     for (auto it = nextMacToPaths.cbegin(); it != nextMacToPaths.cend(); ++it) current.insert(it.key());
     for (const QString& mac : previous - current) {
+        // Drop every per-MAC cache entry, or names and connection state accumulate for
+        // devices that are no longer present.
+        deviceNames_.remove(mac);
+        connectionStates_.remove(mac);
+        everConnected_.remove(mac);
+        lastRssi_.remove(mac);
         emit deviceObserved(mac, false, 0, false);
     }
     if (!autoSelect_) {
@@ -156,7 +162,8 @@ void BluezMonitor::enumerateDevices() {
         for (const QString& path : mapping.value()) {
             const QVariantMap properties = objects.value(QDBusObjectPath{path}).value("org.bluez.Device1");
             if (name.isEmpty()) {
-                name = properties.value("Alias", properties.value("Name")).toString();
+                const QString alias = properties.value("Alias").toString();
+                name = alias.isEmpty() ? properties.value("Name").toString() : alias;
             }
             const bool pathConnected = properties.value("Connected").toBool();
             pathConnectionStates_.insert(path, pathConnected);
@@ -180,11 +187,19 @@ void BluezMonitor::enumerateDevices() {
         if (connected) {
             everConnected_.insert(mac, true);
         }
+        // The periodic re-enumeration re-reads the same cached properties every tick. Only
+        // report a genuine change: re-emitting unchanged values would count one RSSI
+        // snapshot as a fresh sample each time, collapsing the averaging window.
+        const bool isNew = !connectionStates_.contains(mac);
+        const bool presenceChanged = isNew || connectionStates_.value(mac) != connected;
+        const bool rssiChanged = isNew || lastRssi_.contains(mac) != hasRssi || (hasRssi && lastRssi_.value(mac) != rssiDbm);
         connectionStates_.insert(mac, connected);
         if (hasRssi) {
             lastRssi_.insert(mac, rssiDbm);
         }
-        emit deviceObserved(mac, connected, rssiDbm, hasRssi);
+        if (presenceChanged || rssiChanged) {
+            emit deviceObserved(mac, connected, rssiDbm, hasRssi);
+        }
     }
     // QMap iterators dereference to the mapped value, so a range-constructed QSet
     // would hold MACs rather than object paths and prune every live entry. Insert keys.
