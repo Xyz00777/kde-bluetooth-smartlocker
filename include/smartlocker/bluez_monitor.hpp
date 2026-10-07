@@ -51,6 +51,7 @@ private:
     bool autoSelect_{false};
     bool started_{false};
     QTimer refreshTimer_;
+    int pinnedRefreshIntervalMs_{0};
     QDBusServiceWatcher serviceWatcher_;
 };
 

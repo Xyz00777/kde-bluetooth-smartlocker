@@ -60,6 +60,9 @@ void BluezMonitor::onServiceUnregistered(const QString&) {
 }
 
 void BluezMonitor::setRefreshInterval(const int milliseconds) {
+    // A positive value pins the watchdog, disabling the adaptive backoff, so tests are not
+    // subject to the slow interval once the observed set settles.
+    pinnedRefreshIntervalMs_ = milliseconds;
     refreshTimer_.setInterval(milliseconds);
 }
 
@@ -94,17 +97,15 @@ void BluezMonitor::start(const QSet<QString>& watchedMacs, const bool autoSelect
 void BluezMonitor::enumerateDevices() {
     QDBusInterface manager{"org.bluez", "/", "org.freedesktop.DBus.ObjectManager", bus_};
     manager.setTimeout(2000);
-    const QDBusMessage reply = manager.call("GetManagedObjects");
-    if (reply.type() == QDBusMessage::ErrorMessage || reply.arguments().isEmpty()) {
-        qCWarning(bluezMonitorLog) << "failed to enumerate BlueZ objects:" << reply.errorMessage();
+    const QDBusReply<BluezObjects> reply = manager.call("GetManagedObjects");
+    // A typed reply covers both failure modes: an error reply is invalid, and so is a
+    // payload that cannot be demarshalled into the object-manager shape. Either way the
+    // previous device set is kept, rather than being replaced by a partial read.
+    if (!reply.isValid()) {
+        qCWarning(bluezMonitorLog) << "failed to enumerate BlueZ objects:" << reply.error().message();
         return;
     }
-    const QVariant payload = reply.arguments().constFirst();
-    if (payload.userType() != qMetaTypeId<BluezObjects>()) {
-        qCWarning(bluezMonitorLog) << "unexpected GetManagedObjects payload; keeping the previous device set";
-        return;
-    }
-    const BluezObjects objects = qdbus_cast<BluezObjects>(payload);
+    const BluezObjects objects = reply.value();
     bool hasAdapter = false;
     QMap<QString, QStringList> nextMacToPaths;
     for (auto object = objects.cbegin(); object != objects.cend(); ++object) {
@@ -164,8 +165,13 @@ void BluezMonitor::enumerateDevices() {
     }
     const QStringList selected = autoSelect_ ? macToPaths_.keys() : watchedMacs_.values();
     emit selectedDevicesChanged(selected);
-    const bool settled = !current.isEmpty() && (watchedMacs_ - current).isEmpty();
-    if (refreshTimer_.isActive()) {
+    // "Settled" must mean the observed set stopped changing. Comparing against the
+    // configured set would wrongly report settled in auto-select mode, where that set is
+    // empty, even while devices are appearing and disappearing.
+    const bool settled = !current.isEmpty() && previous == current;
+    if (pinnedRefreshIntervalMs_ > 0) {
+        refreshTimer_.start(pinnedRefreshIntervalMs_);
+    } else if (refreshTimer_.isActive()) {
         refreshTimer_.start(settled ? kSlowRefreshMs : kFastRefreshMs);
     }
     for (auto mapping = macToPaths_.cbegin(); mapping != macToPaths_.cend(); ++mapping) {
@@ -214,6 +220,10 @@ void BluezMonitor::enumerateDevices() {
         connectionStates_.insert(mac, connected);
         if (hasRssi) {
             lastRssi_.insert(mac, rssiDbm);
+        } else {
+            // A device that stops reporting RSSI must not leave a cached reading behind,
+            // both for change detection and because stale RSSI must never imply presence.
+            lastRssi_.remove(mac);
         }
         if (presenceChanged || rssiChanged) {
             emit deviceObserved(mac, connected, rssiDbm, hasRssi);
