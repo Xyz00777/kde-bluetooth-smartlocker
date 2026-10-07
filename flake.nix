@@ -80,7 +80,7 @@
           };
         });
 
-      nixosModules.default = { config, lib, pkgs, ... }:
+      nixosModules.default = { config, lib, pkgs, utils, ... }:
         let
           cfg = config.services.kdeBluetoothSmartlocker;
           # Restrict device specs to what the daemon actually accepts so that nothing
@@ -156,27 +156,31 @@
                 StartLimitIntervalSec = "10min";
                 StartLimitBurst = 10;
               };
-              serviceConfig.ExecStart = [
-                "${cfg.package}/bin/kde-bluetooth-smartlocker"
-                "--lock-command"
-                "${pkgs.systemd}/bin/loginctl"
-                "--away-seconds"
-                (toString cfg.awaySeconds)
-                "--snooze-seconds"
-                (toString cfg.snoozeSeconds)
-                "--resume-grace-seconds"
-                (toString cfg.resumeGraceSeconds)
-                "--minimum-present"
-                (toString cfg.minimumPresent)
-                "--rssi-threshold"
-                (toString cfg.rssiThreshold)
-                "--rssi-hysteresis"
-                (toString cfg.rssiHysteresis)
-                "--rssi-samples"
-                (toString cfg.rssiSamples)
-              ]
-              ++ lib.optional cfg.prelockNotify "--prelock-notify"
-              ++ lib.concatMap (device: [ "--device" device ]) cfg.devices;
+              # serviceConfig renders each LIST element as its own ExecStart= line, and a
+              # Type=simple unit allows only one, so this must stay a single escaped string.
+              serviceConfig.ExecStart = utils.escapeSystemdExecArgs (
+                [
+                  "${cfg.package}/bin/kde-bluetooth-smartlocker"
+                  "--lock-command"
+                  "${pkgs.systemd}/bin/loginctl"
+                  "--away-seconds"
+                  (toString cfg.awaySeconds)
+                  "--snooze-seconds"
+                  (toString cfg.snoozeSeconds)
+                  "--resume-grace-seconds"
+                  (toString cfg.resumeGraceSeconds)
+                  "--minimum-present"
+                  (toString cfg.minimumPresent)
+                  "--rssi-threshold"
+                  (toString cfg.rssiThreshold)
+                  "--rssi-hysteresis"
+                  (toString cfg.rssiHysteresis)
+                  "--rssi-samples"
+                  (toString cfg.rssiSamples)
+                ]
+                ++ lib.optional cfg.prelockNotify "--prelock-notify"
+                ++ lib.concatMap (device: [ "--device" device ]) cfg.devices
+              );
               serviceConfig.Restart = "on-failure";
               serviceConfig.RestartSec = "2";
               serviceConfig.NoNewPrivileges = true;
