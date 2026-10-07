@@ -209,14 +209,14 @@ private slots:
     }
 
     void onDaemonSettingsChanged() {
-        // Clearing first keeps a delegate from displaying a value the daemon has just
-        // changed; refresh() re-primes every cache in one asynchronous round trip.
-        clearCaches();
+        // Deliberately not clearing here: refresh() replaces the caches atomically when the
+        // DeviceSettings reply lands. Clearing up front would let the SnoozeSeconds reply
+        // emit settingsChanged while the caches are empty, making delegates fall back to
+        // placeholder values. A stale real value is better than a fabricated default.
         refresh();
     }
 
     void onServiceRegistered(const QString&) {
-        clearCaches();
         refresh();
     }
 
