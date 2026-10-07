@@ -31,9 +31,11 @@
               qmllint \
                 -I "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
                 -I "${pkgs.kdePackages.libplasma}/lib/qt-6/qml" \
+                -I "${pkgs.quickshell}/lib/qt-6/qml" \
                 -I plasmoid/qml \
                 plasmoid/contents/ui/main.qml \
-                plasmoid/contents/ui/DevicePolicyRow.qml > qmllint.log 2>&1
+                plasmoid/contents/ui/DevicePolicyRow.qml \
+                examples/quickshell/shell.qml > qmllint.log 2>&1
               qmllint_status=$?
               grep -v "SmartLockerClient was not found" qmllint.log \
                 | grep -v "Unused import" \
