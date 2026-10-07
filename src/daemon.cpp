@@ -397,9 +397,19 @@ void Daemon::advance() {
 
 void Daemon::verifyLockApplied() {
     if (machine_.state() != MachineState::Locked) {
+        unverifiableLockLogged_ = false;
         return;
     }
-    if (sessionLockState() != SessionLockState::Unlocked) {
+    const SessionLockState lockState = sessionLockState();
+    if (lockState == SessionLockState::Unknown) {
+        if (!unverifiableLockLogged_) {
+            qCWarning(smartLockerLog) << "cannot verify that the session locked; leaving the lock asserted";
+            unverifiableLockLogged_ = true;
+        }
+        return;
+    }
+    unverifiableLockLogged_ = false;
+    if (lockState == SessionLockState::Locked) {
         return;
     }
     if (lockProcess_.state() == QProcess::NotRunning) {

@@ -71,6 +71,7 @@ private:
     QSettings settings_{"kde-bluetooth-smartlocker", "daemon"};
     bool prelockNotifications_;
     bool started_{false};
+    bool unverifiableLockLogged_{false};
     QString lockCommand_;
     QString previousState_;
     uint notificationId_{0};
