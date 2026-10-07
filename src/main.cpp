@@ -1,7 +1,10 @@
 #include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QDBusConnection>
+#include <QDBusError>
 #include <QLoggingCategory>
+
+#include <iostream>
 
 #include "smartlocker/daemon.hpp"
 #include "smartlocker/device_spec.hpp"
@@ -39,6 +42,39 @@ int main(int argc, char* argv[]) {
         const int value = parser.value(name).toInt(&valid);
         return valid && value >= 0 ? std::optional{value} : std::nullopt;
     };
+    // Usage and startup errors must reach the terminal unconditionally, so they bypass the
+    // optional Qt logging pipeline and go straight to stderr.
+    const auto fail = [](const QString& message) {
+        std::cerr << message.toStdString() << '\n';
+    };
+    const auto requirePositive = [&parser, &fail](std::initializer_list<const char*> names) -> bool {
+        for (const char* name : names) {
+            bool valid = false;
+            const int value = parser.value(name).toInt(&valid);
+            if (!valid || value <= 0) {
+                fail(QStringLiteral("--%1 must be an integer greater than zero; got %2")
+                         .arg(QString::fromLatin1(name), parser.value(name)));
+                return false;
+            }
+        }
+        return true;
+    };
+    const auto requireNonNegative = [&parser, &fail](std::initializer_list<const char*> names) -> bool {
+        for (const char* name : names) {
+            bool valid = false;
+            const int value = parser.value(name).toInt(&valid);
+            if (!valid || value < 0) {
+                fail(QStringLiteral("--%1 must be a non-negative integer; got %2")
+                         .arg(QString::fromLatin1(name), parser.value(name)));
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!requireNonNegative({"away-seconds", "resume-grace-seconds"})
+        || !requirePositive({"snooze-seconds", "minimum-present", "rssi-hysteresis", "rssi-samples"})) {
+        return 2;
+    }
     const auto awaySeconds = nonNegative("away-seconds");
     const auto snoozeSeconds = positive("snooze-seconds");
     const auto resumeGraceSeconds = nonNegative("resume-grace-seconds");
@@ -47,8 +83,12 @@ int main(int argc, char* argv[]) {
     const auto rssiSamples = positive("rssi-samples");
     bool rssiValid = false;
     const int rssiThreshold = parser.value("rssi-threshold").toInt(&rssiValid);
-    if (!awaySeconds.has_value() || !snoozeSeconds.has_value() || !resumeGraceSeconds.has_value() || !minimumPresent.has_value()
-        || !rssiHysteresis.has_value() || !rssiSamples.has_value() || !rssiValid || rssiThreshold < -100 || rssiThreshold > 0) {
+    if (!rssiValid) {
+        fail(QStringLiteral("--rssi-threshold must be an integer; got %1").arg(parser.value("rssi-threshold")));
+        return 2;
+    }
+    if (rssiThreshold < -100 || rssiThreshold > 0) {
+        fail(QStringLiteral("--rssi-threshold must be within -100..0 dBm; got %1").arg(rssiThreshold));
         return 2;
     }
 
@@ -63,12 +103,12 @@ int main(int argc, char* argv[]) {
         }
         const auto mac = smartlocker::normalizeDeviceSpec(spec.toStdString());
         if (!mac.has_value()) {
-            qCCritical(smartLockerMainLog).noquote() << "invalid Bluetooth device address or BlueZ device object path:" << spec;
+            fail(QStringLiteral("invalid Bluetooth device address or BlueZ device object path: %1").arg(spec));
             return 2;
         }
         const QString id = QString::fromStdString(*mac);
         if (watchedMacs.contains(id)) {
-            qCCritical(smartLockerMainLog).noquote() << "duplicate Bluetooth device address:" << id;
+            fail(QStringLiteral("duplicate Bluetooth device address: %1").arg(id));
             return 2;
         }
         devices.push_back({smartlocker::DeviceId{*mac}, rssiThreshold, *rssiHysteresis,
@@ -76,7 +116,9 @@ int main(int argc, char* argv[]) {
         watchedMacs.insert(id);
     }
     if (!devices.empty() && static_cast<std::size_t>(*minimumPresent) > devices.size()) {
-        qCCritical(smartLockerMainLog) << "minimum present devices cannot exceed configured device count";
+        fail(QStringLiteral("--minimum-present (%1) cannot exceed the configured device count (%2)")
+                 .arg(*minimumPresent)
+                 .arg(static_cast<int>(devices.size())));
         return 2;
     }
     smartlocker::Daemon daemon(
@@ -85,12 +127,21 @@ int main(int argc, char* argv[]) {
         watchedMacs, watchedMacs.isEmpty(), rssiThreshold, *rssiHysteresis, static_cast<std::size_t>(*rssiSamples),
         parser.isSet("prelock-notify"), parser.value("lock-command"));
     QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
+        fail(QStringLiteral("cannot connect to the session bus; is DBUS_SESSION_BUS_ADDRESS set?"));
+        return 1;
+    }
     if (!bus.registerObject("/SmartLocker", &daemon,
                             QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableSignals)) {
+        fail(QStringLiteral("failed to export /SmartLocker: %1").arg(bus.lastError().message()));
         return 1;
     }
     daemon.start();
     if (!bus.registerService("org.kde.SmartLocker1")) {
+        const QString reason = bus.lastError().message();
+        fail(reason.isEmpty() ? QStringLiteral("failed to own org.kde.SmartLocker1; another instance is already running")
+                              : QStringLiteral("failed to own org.kde.SmartLocker1: %1").arg(reason));
+        bus.unregisterObject("/SmartLocker");
         return 1;
     }
     QObject::connect(&application, &QCoreApplication::aboutToQuit, [&bus] {
