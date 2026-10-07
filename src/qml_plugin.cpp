@@ -195,6 +195,26 @@ private:
                 emit devicesChanged();
             }
         });
+
+        watchReply<QVariantMap>(asyncDaemonCall(QStringLiteral("DeviceSettings")), [this, generation](const QDBusPendingReply<QVariantMap>& reply) {
+            if (generation != refreshGeneration_ || !reply.isValid()) {
+                return;
+            }
+            // Priming the per-device caches here keeps the QML getters off the
+            // synchronous D-Bus path, which would otherwise block the UI thread.
+            enabledCache_.clear();
+            thresholdCache_.clear();
+            nameCache_.clear();
+            for (auto it = reply.value().cbegin(); it != reply.value().cend(); ++it) {
+                const QVariantMap entry = it.value().toMap();
+                enabledCache_.insert(it.key(), entry.value(QStringLiteral("enabled")).toBool());
+                thresholdCache_.insert(it.key(), entry.value(QStringLiteral("rssiThreshold")).toInt());
+                const QString name = entry.value(QStringLiteral("name")).toString();
+                if (!name.isEmpty()) {
+                    nameCache_.insert(it.key(), name);
+                }
+            }
+        });
     }
 
     void setLastError(const QString& message) {
@@ -220,9 +240,10 @@ private slots:
     }
 
     void onDaemonSettingsChanged() {
+        // Clearing first keeps a delegate from displaying a value the daemon has just
+        // changed; refresh() re-primes every cache in one asynchronous round trip.
         clearCaches();
-        refreshDevices(++refreshGeneration_);
-        emit settingsChanged();
+        refresh();
     }
 
     void onServiceRegistered(const QString&) {

@@ -253,6 +253,19 @@ QString Daemon::DeviceName(const QString& path) const {
     return watchedMacs_.contains(mac) ? monitor_.deviceName(mac) : QString{};
 }
 
+QVariantMap Daemon::DeviceSettings() const {
+    QVariantMap all;
+    for (const QString& mac : watchedMacs_) {
+        // Delegate to the guarded accessors: the state machine throws for unknown ids.
+        all.insert(mac, QVariantMap{
+                        {"name", DeviceName(mac)},
+                        {"enabled", DeviceEnabled(mac)},
+                        {"rssiThreshold", DeviceRssiThreshold(mac)},
+                    });
+    }
+    return all;
+}
+
 bool Daemon::SetEnabled(const bool enabled) {
     if (sessionLockState() != SessionLockState::Unlocked) {
         return false;

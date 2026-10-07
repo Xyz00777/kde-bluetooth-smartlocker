@@ -7,6 +7,7 @@
 #include <QProcess>
 #include <QSettings>
 #include <QTimer>
+#include <QVariantMap>
 
 namespace smartlocker {
 
@@ -31,6 +32,7 @@ public slots:
     Q_SCRIPTABLE [[nodiscard]] bool DeviceEnabled(const QString& path) const;
     Q_SCRIPTABLE [[nodiscard]] int DeviceRssiThreshold(const QString& path) const;
     Q_SCRIPTABLE [[nodiscard]] QString DeviceName(const QString& path) const;
+    Q_SCRIPTABLE [[nodiscard]] QVariantMap DeviceSettings() const;
     Q_SCRIPTABLE bool SetEnabled(bool enabled);
     Q_SCRIPTABLE bool SetDeviceEnabled(const QString& path, bool enabled);
     Q_SCRIPTABLE bool SetDeviceRssiThreshold(const QString& path, int thresholdDbm);
