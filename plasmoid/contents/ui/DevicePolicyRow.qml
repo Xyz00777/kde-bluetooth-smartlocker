@@ -16,7 +16,7 @@ ColumnLayout {
         Layout.fillWidth: true
         text: root.deviceName.length > 0 ? (root.deviceName + " (" + root.path + ")") : root.path
         elide: Text.ElideMiddle
-        Accessible.name: "Bluetooth device"
+        Accessible.name: "Bluetooth device " + (root.deviceName.length > 0 ? root.deviceName : root.path)
     }
 
     RowLayout {
@@ -50,6 +50,7 @@ ColumnLayout {
             textFromValue: function(value) { return value + " dBm"; }
             valueFromText: function(text) { return parseInt(text); }
             Accessible.name: "RSSI threshold in dBm for " + (root.deviceName.length > 0 ? root.deviceName : root.path)
+            Accessible.description: "Signal strength threshold used to determine whether this device is present."
             onValueModified: root.daemonClient.setDeviceRssiThreshold(root.path, thresholdSpinBox.value)
         }
     }

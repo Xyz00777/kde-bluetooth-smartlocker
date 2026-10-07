@@ -10,8 +10,9 @@ PlasmoidItem {
         id: client
     }
     compactRepresentation: Label {
-        text: client.state.length > 0 ? (client.state[0].toUpperCase() + client.state.slice(1)) : ""
+        text: root.statusText
         font.bold: true
+        Accessible.name: "Bluetooth SmartLocker status: " + root.statusText
     }
     fullRepresentation: ColumnLayout {
         spacing: 10
@@ -24,11 +25,30 @@ PlasmoidItem {
                 font.bold: true
                 font.pointSize: 11
                 Layout.fillWidth: true
+                Accessible.name: "Bluetooth SmartLocker"
             }
             Label {
-                text: client.state.length > 0 ? (client.state[0].toUpperCase() + client.state.slice(1)) : ""
+                text: root.statusText
                 font.bold: true
-                color: client.state === "monitoring" ? "#2ecc71" : (client.state === "away" ? "#f39c12" : (client.state === "locked" ? "#e74c3c" : "#95a5a6"))
+                color: root.statusColor
+                Accessible.name: "Monitoring status: " + root.statusText
+            }
+        }
+
+        RowLayout {
+            visible: client.lastError.length > 0
+            Layout.fillWidth: true
+            Label {
+                text: client.lastError
+                color: "#f39c12"
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+                Accessible.name: "Daemon error: " + client.lastError
+            }
+            Button {
+                text: "Dismiss"
+                Accessible.name: "Dismiss daemon error"
+                onClicked: client.clearError()
             }
         }
 
@@ -39,6 +59,8 @@ PlasmoidItem {
             checked: client.state !== "disabled" && client.state !== "unavailable"
             onToggled: client.setEnabled(enabledSwitch.checked)
             Layout.fillWidth: true
+            Accessible.name: "Monitoring enabled"
+            Accessible.description: "Turn Bluetooth presence monitoring on or off."
         }
 
         Label {
@@ -47,6 +69,7 @@ PlasmoidItem {
             wrapMode: Text.Wrap
             color: "#95a5a6"
             Layout.fillWidth: true
+            Accessible.name: "Device guidance"
         }
 
         ScrollView {
@@ -84,13 +107,40 @@ PlasmoidItem {
                 visible: client.snoozeSeconds > 0
                 onClicked: client.snooze(client.snoozeSeconds)
                 Layout.fillWidth: true
+                Accessible.name: "Snooze monitoring for " + client.snoozeSeconds + " seconds"
             }
 
             Button {
                 text: "Refresh"
                 onClicked: client.refresh()
                 Layout.fillWidth: true
+                Accessible.name: "Refresh SmartLocker status and devices"
             }
+        }
+    }
+
+    property string statusText: {
+        switch (client.state) {
+        case "starting": return "Starting"
+        case "monitoring": return "Monitoring"
+        case "away": return "Away"
+        case "snoozed": return "Snoozed"
+        case "disabled": return "Disabled"
+        case "locked": return "Locked"
+        case "error": return "Error"
+        default: return "Status unknown"
+        }
+    }
+    property color statusColor: {
+        switch (client.state) {
+        case "monitoring": return "#2ecc71"
+        case "away":
+        case "snoozed":
+        case "error": return "#f39c12"
+        case "locked": return "#e74c3c"
+        case "disabled": return "#95a5a6"
+        case "starting": return "#95a5a6"
+        default: return "#f39c12"
         }
     }
 }
