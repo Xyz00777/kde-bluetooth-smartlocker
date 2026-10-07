@@ -1,3 +1,9 @@
+// qmllint reports `unqualified` warnings here on purpose. The Repeater delegate is a real
+// component boundary that legitimately reads the outer `client` id, so declaring
+// `pragma ComponentBehavior: Bound` would cut the warnings to 21 but introduce an
+// incompatible-type error and break the delegate. Removing them properly requires passing
+// the client through the model or exposing it as a singleton, which is disproportionate for
+// an example. The warnings are advisory and do not fail the build gate.
 import Quickshell
 import QtQuick
 import QtQuick.Layouts
