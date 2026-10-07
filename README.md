@@ -53,6 +53,8 @@ SMARTLOCKER_DEVICES=C0:1C:6A:75:9C:31;40:92:1A:53:8F:23
 
 With no `--device` options and an empty or unset `SMARTLOCKER_DEVICES`, the daemon dynamically watches every BlueZ device marked `Paired` or `Trusted`. An address not currently present in BlueZ is retained as configured but treated as absent; it does not cause startup failure. `Devices()` and per-device settings use canonical uppercase colon-separated MAC addresses, which remain stable if BlueZ renumbers adapters.
 
+Settings are stored by `QSettings` under `$XDG_CONFIG_HOME/kde-bluetooth-smartlocker`. The packaged user service only grants write access to `%h/.config/kde-bluetooth-smartlocker`, so a customised `XDG_CONFIG_HOME` leaves the config directory read-only inside the service sandbox and settings will not persist; the daemon logs a warning when a write fails.
+
 ## NixOS
 
 ```nix
