@@ -56,6 +56,7 @@ private slots:
 
 private:
     void publishState();
+    void persistSettings(const char* context);
 
     StateMachine machine_;
     BluezMonitor monitor_;

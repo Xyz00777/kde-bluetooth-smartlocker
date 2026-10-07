@@ -201,6 +201,15 @@ Daemon::~Daemon() {
     settings_.sync();
 }
 
+void Daemon::persistSettings(const char* context) {
+    settings_.sync();
+    // QSettings reports a failed write through the sync status only, so without this the
+    // setting is silently lost (for example under a sandbox with a read-only config dir).
+    if (settings_.status() != QSettings::NoError) {
+        qCWarning(smartLockerLog) << "failed to persist settings while" << context << "at" << settings_.fileName();
+    }
+}
+
 void Daemon::start() {
     if (started_) {
         return;
@@ -272,7 +281,7 @@ bool Daemon::SetEnabled(const bool enabled) {
     }
     machine_.setEnabled(enabled, now());
     settings_.setValue("enabled", enabled);
-    settings_.sync();
+    persistSettings("disabling monitoring");
     publishState();
     emit SettingsChanged();
     return true;
@@ -288,7 +297,7 @@ bool Daemon::SetDeviceEnabled(const QString& path, const bool enabled) {
     }
     machine_.setDeviceEnabled(DeviceId{mac.toStdString()}, enabled, now());
     settings_.setValue(deviceSettingsKey(mac, "enabled"), enabled);
-    settings_.sync();
+    persistSettings("disabling a device");
     publishState();
     emit SettingsChanged();
     return true;
@@ -307,7 +316,7 @@ bool Daemon::SetDeviceRssiThreshold(const QString& path, const int thresholdDbm)
     }
     machine_.setDeviceRssiThreshold(DeviceId{mac.toStdString()}, thresholdDbm, now());
     settings_.setValue(deviceSettingsKey(mac, "rssiThreshold"), thresholdDbm);
-    settings_.sync();
+    persistSettings("changing an RSSI threshold");
     publishState();
     emit SettingsChanged();
     return true;
