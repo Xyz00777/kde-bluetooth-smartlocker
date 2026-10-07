@@ -22,7 +22,13 @@ TimePoint now() {
     return std::chrono::steady_clock::now();
 }
 
-bool sessionLocked() {
+enum class SessionLockState {
+    Unlocked,
+    Locked,
+    Unknown,
+};
+
+SessionLockState sessionLockState() {
     QDBusInterface login1{"org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
                           QDBusConnection::systemBus()};
     login1.setTimeout(2000);
@@ -61,31 +67,46 @@ bool sessionLocked() {
     }
 
     if (sessionPaths.isEmpty()) {
-        return false;
+        qCWarning(smartLockerLog) << "cannot determine session; treating lock state as unknown";
+        return SessionLockState::Unknown;
     }
 
+    bool sawGraphical = false;
     for (const auto& path : sessionPaths) {
         QDBusInterface session{"org.freedesktop.login1", path.path(), "org.freedesktop.login1.Session",
                                QDBusConnection::systemBus()};
         session.setTimeout(2000);
-        const QString type = session.property("Type").toString();
+        const QVariant typeValue = session.property("Type");
+        if (session.lastError().isValid()) {
+            qCWarning(smartLockerLog) << "cannot read session Type:" << session.lastError().message();
+            return SessionLockState::Unknown;
+        }
+        const QString type = typeValue.toString();
         // If multiple sessions exist (e.g. tty, cron, ssh), only graphical sessions lock
         if (sessionPaths.size() > 1 && type != "wayland" && type != "x11") {
             continue;
         }
-        const QString state = session.property("State").toString();
-        const bool lockedHint = session.property("LockedHint").toBool();
-        const bool active = session.property("Active").toBool();
+        const QVariant stateValue = session.property("State");
+        const QVariant lockedHintValue = session.property("LockedHint");
+        const QVariant activeValue = session.property("Active");
+        if (session.lastError().isValid()) {
+            qCWarning(smartLockerLog) << "cannot read session lock state:" << session.lastError().message();
+            return SessionLockState::Unknown;
+        }
+        const QString state = stateValue.toString();
+        const bool lockedHint = lockedHintValue.toBool();
+        const bool active = activeValue.toBool();
+        sawGraphical = true;
         // logind reports "locking" during the transition and "locked" while the screen
         // is locked, or sets LockedHint to true; mutating calls must be rejected in both,
         // since the plasmoid is unreachable behind the lock screen anyway.
         // Additionally, if the graphical session is inactive (e.g. switched to another VT
         // or fast-user-switched), mutating calls are blocked for security.
         if (state == "locking" || state == "locked" || lockedHint || !active) {
-            return true;
+            return SessionLockState::Locked;
         }
     }
-    return false;
+    return sawGraphical ? SessionLockState::Unlocked : SessionLockState::Unknown;
 }
 
 QString stateName(const MachineState state) {
@@ -233,7 +254,7 @@ QString Daemon::DeviceName(const QString& path) const {
 }
 
 bool Daemon::SetEnabled(const bool enabled) {
-    if (sessionLocked()) {
+    if (sessionLockState() != SessionLockState::Unlocked) {
         return false;
     }
     machine_.setEnabled(enabled, now());
@@ -245,7 +266,7 @@ bool Daemon::SetEnabled(const bool enabled) {
 }
 
 bool Daemon::SetDeviceEnabled(const QString& path, const bool enabled) {
-    if (sessionLocked()) {
+    if (sessionLockState() != SessionLockState::Unlocked) {
         return false;
     }
     const QString mac = resolveMac(path);
@@ -261,7 +282,7 @@ bool Daemon::SetDeviceEnabled(const QString& path, const bool enabled) {
 }
 
 bool Daemon::SetDeviceRssiThreshold(const QString& path, const int thresholdDbm) {
-    if (sessionLocked()) {
+    if (sessionLockState() != SessionLockState::Unlocked) {
         return false;
     }
     const QString mac = resolveMac(path);
@@ -273,13 +294,14 @@ bool Daemon::SetDeviceRssiThreshold(const QString& path, const int thresholdDbm)
     }
     machine_.setDeviceRssiThreshold(DeviceId{mac.toStdString()}, thresholdDbm, now());
     settings_.setValue(deviceSettingsKey(mac, "rssiThreshold"), thresholdDbm);
+    settings_.sync();
     publishState();
     emit SettingsChanged();
     return true;
 }
 
 bool Daemon::Snooze(const int seconds) {
-    if (sessionLocked()) {
+    if (sessionLockState() != SessionLockState::Unlocked) {
         return false;
     }
     if (seconds <= 0 || seconds > machine_.snoozeDurationCap().count()) {
@@ -364,7 +386,7 @@ void Daemon::verifyLockApplied() {
     if (machine_.state() != MachineState::Locked) {
         return;
     }
-    if (sessionLocked()) {
+    if (sessionLockState() != SessionLockState::Unlocked) {
         return;
     }
     if (lockProcess_.state() == QProcess::NotRunning) {
