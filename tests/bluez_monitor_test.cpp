@@ -91,6 +91,14 @@ BluezObjects twoPaths(const bool firstConnected, const bool secondConnected) {
     };
 }
 
+BluezObjects adapterOnly(const bool powered) {
+    const QVariantMap adapter{{QStringLiteral("Powered"), QVariant(powered)}};
+    return BluezObjects{
+        {QDBusObjectPath(QStringLiteral("/org/bluez/hci0")),
+         BluezInterfaces{{QStringLiteral("org.bluez.Adapter1"), adapter}}},
+    };
+}
+
 // org.bluez stand-in, split across two objects because BlueZ exposes the object manager and
 // the properties interface as separate D-Bus interfaces.
 class FakeBluez final : public QObject, protected QDBusContext {
@@ -451,6 +459,25 @@ int main(int argc, char* argv[]) {
     check(observed.count() == 0, "failed reply does not fabricate observations");
     check(monitor.deviceName(kMac) == QStringLiteral("Added"), "failed reply keeps the previous device set");
     setFail(fake, false);
+
+    // A configured device that BlueZ does not expose at all must still be reported absent.
+    // Without that observation the state machine never clears its "seen a device" gate, so it
+    // stays in Starting forever and the session never locks.
+    smartlocker::BluezMonitor configured(nullptr, bus);
+    configured.setRefreshInterval(30);
+    QSignalSpy configuredObserved(&configured, &smartlocker::BluezMonitor::deviceObserved);
+
+    publish(fake, adapterOnly(true));
+    configured.start({kMac}, false);
+    check(waitForObservation(configuredObserved, kMac, false),
+          "a configured device BlueZ does not expose is reported absent");
+
+    // With no powered adapter BlueZ cannot see anything, so absence must NOT be concluded and a
+    // controller failure still cannot provoke a lock.
+    configuredObserved.clear();
+    publish(fake, adapterOnly(false));
+    spinFor(250);
+    check(configuredObserved.count() == 0, "no absence is reported while no adapter is powered");
 
     service.quit();
     service.wait(3000);

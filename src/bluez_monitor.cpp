@@ -152,6 +152,14 @@ void BluezMonitor::enumerateDevices() {
             if (!reportedAbsent_.contains(mac)) {
                 qCDebug(bluezMonitorLog) << "configured Bluetooth device is currently absent:" << mac;
             }
+            // A configured device that BlueZ does not expose is genuinely absent, and this
+            // has to be reported: without an observation the state machine never gets past
+            // its "seen at least one device" gate, so it would sit in Starting forever and
+            // the session would never lock. Absence is only concluded while an adapter is
+            // powered, so a controller failure still cannot provoke a lock.
+            if (hasAdapter) {
+                emit deviceObserved(mac, false, 0, false);
+            }
         }
         reportedAbsent_ = stillAbsent;
     } else {

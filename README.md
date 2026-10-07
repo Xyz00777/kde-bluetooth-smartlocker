@@ -129,4 +129,4 @@ Run the checker manually with:
 
 ## Status
 
-The lock-only daemon, BlueZ monitoring, RSSI policy, D-Bus API (with a session-locked mutation gate), lock retry and verification, graphical Plasma controls, CMake build, Nix package, and NixOS module are implemented and covered by automated tests. A real Plasma-session lock test and rendered Plasma visual QA remain deployment checks rather than automated build tests.
+The lock-only daemon, BlueZ monitoring, RSSI policy, D-Bus API (with a session-locked mutation gate), lock retry and verification, graphical Plasma controls, CMake build, Nix package, and NixOS module are implemented and covered by automated tests. The lock path is exercised end to end by a test that runs the real daemon against a recording lock command, so no session is ever locked. A real Plasma-session lock test and rendered Plasma visual QA remain deployment checks rather than automated build tests.
