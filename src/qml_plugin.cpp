@@ -214,6 +214,9 @@ private:
                     nameCache_.insert(it.key(), name);
                 }
             }
+            // The cache contents just changed, so delegates holding device names, toggles
+            // and thresholds must re-read them or they would display stale values.
+            emit settingsChanged();
         });
     }
 
