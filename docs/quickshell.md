@@ -35,6 +35,9 @@ SmartLockerClient {
 //   Note: "unavailable" indicates the client is connecting or the daemon is not running.
 // - smartLocker.devices (list of watched Bluetooth addresses)
 // - smartLocker.snoozeSeconds (configured maximum snooze duration in seconds)
+// - smartLocker.lastError (empty when there is no outstanding error; otherwise a
+//   human-readable reason the daemon refused the last change)
+//   Listen for the errorOccurred signal, and call clearError() to dismiss it.
 
 // Call methods:
 // - smartLocker.setEnabled(bool)
@@ -45,4 +48,15 @@ SmartLockerClient {
 // - smartLocker.setDeviceRssiThreshold(address, dbm)
 // - smartLocker.deviceName(address)
 // - smartLocker.refresh()
+// - smartLocker.refreshDevices()
+// - smartLocker.clearError()
 ```
+
+## Notes on device getters
+
+`deviceEnabled`, `deviceRssiThreshold` and `deviceName` read an in-memory cache and never
+perform blocking D-Bus calls, so they are safe to call from a property binding. The cache is
+filled asynchronously by `refresh()`, which also emits `settingsChanged`; re-read the getters
+from a handler on `settingsChanged` if you need to react to daemon-side changes such as live
+device-name updates. Before the first reply arrives, the getters return the daemon's defaults
+(`true`, `-70`, and an empty name) rather than blocking.
