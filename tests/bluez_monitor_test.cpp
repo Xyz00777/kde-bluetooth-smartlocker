@@ -9,7 +9,9 @@
 #include <QDBusMetaType>
 #include <QDBusReply>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QProcess>
+#include <QTemporaryFile>
 #include <QSignalSpy>
 #include <QThread>
 
@@ -218,18 +220,51 @@ int main(int argc, char* argv[]) {
     QCoreApplication app(argc, argv);
     qDBusRegisterMetaType<BluezObjects>();
 
+    // A self-contained config keeps this independent of the host: Nix ships an empty
+    // session.conf and a build sandbox has no /etc/dbus-1 at all, so --session alone either
+    // finds nothing or, with the store copy, has no <listen> element.
+    QTemporaryFile configFile;
+    if (!configFile.open()) {
+        std::printf("FAIL: cannot create a temporary dbus config\n");
+        return 1;
+    }
+    const QByteArray config = QByteArrayLiteral(
+        "<!DOCTYPE busconfig PUBLIC \"-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN\"\n"
+        " \"http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd\">\n"
+        "<busconfig>\n"
+        "  <type>session</type>\n"
+        "  <listen>unix:tmpdir=/tmp</listen>\n"
+        "  <auth>EXTERNAL</auth>\n"
+        "  <allow_anonymous/>\n"
+        "  <policy context=\"default\">\n"
+        "    <allow send_destination=\"*\" eavesdrop=\"true\"/>\n"
+        "    <allow eavesdrop=\"true\"/>\n"
+        "    <allow own=\"*\"/>\n"
+        "  </policy>\n"
+        "</busconfig>\n");
+    configFile.write(config);
+    configFile.flush();
+
     QProcess daemon;
-    daemon.start(QStringLiteral("dbus-daemon"), {QStringLiteral("--session"), QStringLiteral("--nofork"),
-                                                 QStringLiteral("--print-address")});
+    daemon.start(QStringLiteral("dbus-daemon"),
+                 {QStringLiteral("--config-file=") + configFile.fileName(), QStringLiteral("--nofork"),
+                  QStringLiteral("--print-address")});
     if (!daemon.waitForStarted(5000)) {
-        std::printf("FAIL: could not start a private dbus-daemon\n");
+        std::printf("FAIL: could not start a private dbus-daemon: %s\n",
+                    qUtf8Printable(daemon.errorString()));
         return 1;
     }
-    if (!daemon.waitForReadyRead(5000)) {
-        std::printf("FAIL: dbus-daemon did not print an address\n");
+    QString busAddress;
+    for (int i = 0; i < 100 && busAddress.isEmpty(); ++i) {
+        if (daemon.waitForReadyRead(500)) {
+            busAddress = QString::fromLocal8Bit(daemon.readAllStandardOutput()).trimmed();
+        }
+    }
+    if (busAddress.isEmpty()) {
+        std::printf("FAIL: dbus-daemon printed no address; stderr: %s\n",
+                    qUtf8Printable(QString::fromLocal8Bit(daemon.readAllStandardError()).trimmed()));
         return 1;
     }
-    const QString busAddress = QString::fromLocal8Bit(daemon.readAllStandardOutput()).trimmed();
     if (!busAddress.startsWith(QLatin1String("unix:"))) {
         std::printf("FAIL: unexpected bus address '%s'\n", qUtf8Printable(busAddress));
         return 1;
