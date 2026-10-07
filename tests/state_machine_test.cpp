@@ -75,6 +75,74 @@ void testRuntimeBluetoothFailureLocksAfterAwayDuration() {
     require(machine.state() == MachineState::Locked);
 }
 
+void testAwayDurationBoundaryIsInclusive() {
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(0));
+
+    require(machine.advanceTo(at(10) - TimePoint::duration{1}) == Action::None);
+    require(machine.advanceTo(at(10)) == Action::Lock);
+}
+
+void testDeviceReturnBeforeDeadlineCancelsPendingLock() {
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(1));
+
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(11) - TimePoint::duration{1});
+
+    require(machine.advanceTo(at(11)) == Action::None);
+    require(machine.advanceTo(at(60)) == Action::None);
+    require(machine.state() == MachineState::Monitoring);
+}
+
+void testEmptyDeviceSetNeverLocks() {
+    StateMachine machine{StateMachineConfiguration{
+        .awayDuration = 10s,
+        .snoozeDurationCap = 30s,
+        .postResumeGrace = 30s,
+        .minimumPresentDevices = 1,
+        .devices = {},
+    }};
+
+    machine.setBluetoothAvailable(true, at(0));
+    require(machine.advanceTo(at(60)) == Action::None);
+    require(machine.state() == MachineState::Starting);
+
+    machine.setBluetoothAvailable(false, at(61));
+    require(machine.advanceTo(at(120)) == Action::None);
+    require(machine.state() == MachineState::Error);
+}
+
+void testRepeatedAbsenceDoesNotRestartAwayCountdown() {
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(0));
+
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(3));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(6));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(9));
+
+    require(machine.advanceTo(at(9)) == Action::None);
+    require(machine.advanceTo(at(10)) == Action::Lock);
+}
+
+void testControllerFailureDuringAbsenceCountdownPreservesDeadline() {
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(1));
+
+    machine.setBluetoothAvailable(false, at(5));
+
+    // The countdown is intentionally preserved; Error while Bluetooth is unavailable is incidental state reporting.
+    require(machine.state() == MachineState::Error);
+    require(machine.advanceTo(at(10)) == Action::None);
+    require(machine.advanceTo(at(11)) == Action::Lock);
+    require(machine.state() == MachineState::Locked);
+}
+
 void testDisabledWatcherNeverLocks() {
     // Given: an enabled watcher that has observed its device.
     StateMachine machine{configuredForOneDevice()};
@@ -420,6 +488,11 @@ void testAutoSelectionRequiresPairedOrTrusted() {
 int main() {
     testStartupBluetoothFailureDoesNotLock();
     testRuntimeBluetoothFailureLocksAfterAwayDuration();
+    testAwayDurationBoundaryIsInclusive();
+    testDeviceReturnBeforeDeadlineCancelsPendingLock();
+    testEmptyDeviceSetNeverLocks();
+    testRepeatedAbsenceDoesNotRestartAwayCountdown();
+    testControllerFailureDuringAbsenceCountdownPreservesDeadline();
     testDisabledWatcherNeverLocks();
     testReEnableRequiresFreshObservation();
     testBelowThresholdRssiInitiatesLockingWhileConnected();
