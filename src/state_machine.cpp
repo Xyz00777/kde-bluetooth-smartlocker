@@ -196,8 +196,8 @@ void StateMachine::updateRssiPresence(const DeviceConfiguration& configuration, 
         runtime.rssiPresent.reset();
         return;
     }
-    const int total = std::accumulate(runtime.rssiSamples.begin(), runtime.rssiSamples.end(), 0);
-    const int average = total / static_cast<int>(runtime.rssiSamples.size());
+    const long long total = std::accumulate(runtime.rssiSamples.begin(), runtime.rssiSamples.end(), 0LL);
+    const int average = static_cast<int>(total / static_cast<long long>(runtime.rssiSamples.size()));
     const int threshold = *configuration.rssiThresholdDbm;
     const int cutoff = runtime.rssiPresent.value_or(false) ? threshold - configuration.rssiHysteresisDb : threshold;
     runtime.rssiPresent = average >= cutoff;
