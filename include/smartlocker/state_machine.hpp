@@ -53,6 +53,12 @@ struct StateMachineConfiguration {
     std::size_t minimumPresentDevices;
     std::vector<DeviceConfiguration> devices;
     bool enabled{true};
+    // An unpowered adapter carries no presence information, so by default the machine stops
+    // instead of counting absence: with the radio off there is nothing to observe, and locking
+    // on that evidence would lock a user who merely switched Bluetooth off at their desk.
+    // Opt in to the fail-secure behaviour (lock once the away duration elapses anyway) with
+    // --lock-when-bluetooth-off.
+    bool lockWhenBluetoothUnavailable{false};
 };
 
 class StateMachine {

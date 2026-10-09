@@ -7,6 +7,7 @@ Lock-only Bluetooth presence daemon for KDE Plasma 6, Quickshell, and desktop en
 - No automatic unlock path exists.
 - Startup/controller failures do not immediately lock.
 - Runtime absence locks only after the configured grace period.
+- An unavailable Bluetooth adapter never *arms* a new absence countdown: an unpowered radio reports no presence, so switching Bluetooth off at the desk cannot lock the session. Pass `--lock-when-bluetooth-off` to lock on that evidence anyway. An absence countdown that was already running when the adapter dropped still completes, because the device was observed absent before the radio went away.
 - A failed lock command is retried after the away duration; a background verifier re-arms locking if the session never actually locks. An unverifiable session counts as "not proven locked" rather than as success, so a lock that silently failed cannot leave the screen unlocked forever.
 - Mutating D-Bus calls (`SetEnabled`, `Snooze`, device toggles, RSSI thresholds) are rejected while the session is locking or locked.
 - Global and per-device disable state is persisted with `QSettings`.
@@ -44,6 +45,7 @@ Available options:
 | `--rssi-samples N` | `3` | RSSI averaging window size |
 | `--lock-command CMD` | `loginctl` | Command used to lock the session |
 | `--prelock-notify` | off | Notify when the away countdown starts |
+| `--lock-when-bluetooth-off` | off | Lock after the away duration even when the Bluetooth adapter is unavailable |
 
 The daemon also accepts a semicolon-separated `SMARTLOCKER_DEVICES` environment variable. The installed user service reads `%h/.config/kde-bluetooth-smartlocker/service.conf`, for example:
 

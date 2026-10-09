@@ -14,7 +14,7 @@ Q_LOGGING_CATEGORY(smartLockerMainLog, "org.kde.smartlocker.main")
 int main(int argc, char* argv[]) {
     QCoreApplication application{argc, argv};
     application.setApplicationName("kde-bluetooth-smartlocker");
-    application.setApplicationVersion("0.14.0");
+    application.setApplicationVersion("0.15.0");
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Lock-only Bluetooth presence daemon for desktop environments");
@@ -30,6 +30,7 @@ int main(int argc, char* argv[]) {
     parser.addOption({"rssi-samples", "RSSI averaging window size.", "count", "3"});
     parser.addOption({"prelock-notify", "Notify when the away countdown starts."});
     parser.addOption({"lock-command", "Command used to lock the session.", "command", "loginctl"});
+    parser.addOption({"lock-when-bluetooth-off", "Lock once the away duration elapses even when the Bluetooth adapter is unavailable."});
     parser.process(application);
 
     const auto positive = [&parser](const QString& name) -> std::optional<int> {
@@ -122,8 +123,12 @@ int main(int argc, char* argv[]) {
         return 2;
     }
     smartlocker::Daemon daemon(
-        {std::chrono::seconds{*awaySeconds}, std::chrono::seconds{*snoozeSeconds}, std::chrono::seconds{*resumeGraceSeconds},
-         static_cast<std::size_t>(*minimumPresent), std::move(devices)},
+        {.awayDuration = std::chrono::seconds{*awaySeconds},
+         .snoozeDurationCap = std::chrono::seconds{*snoozeSeconds},
+         .postResumeGrace = std::chrono::seconds{*resumeGraceSeconds},
+         .minimumPresentDevices = static_cast<std::size_t>(*minimumPresent),
+         .devices = std::move(devices),
+         .lockWhenBluetoothUnavailable = parser.isSet("lock-when-bluetooth-off")},
         watchedMacs, watchedMacs.isEmpty(), rssiThreshold, *rssiHysteresis, static_cast<std::size_t>(*rssiSamples),
         parser.isSet("prelock-notify"), parser.value("lock-command"));
     QDBusConnection bus = QDBusConnection::sessionBus();

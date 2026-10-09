@@ -13,6 +13,8 @@ kde-bluetooth-smartlocker/
 ├── src/            # C++ impl: main, daemon, bluez_monitor, state_machine, qml_plugin
 ├── include/smartlocker/  # public headers, 1:1 with src/
 ├── plasmoid/       # Plasma 6 package: QML UI + native QML plugin module
+├── examples/quickshell/ # runnable Quickshell config reusing the same QML plugin
+├── docs/           # integration guides (quickshell.md)
 ├── tests/          # single custom-harness test executable
 ├── systemd/        # user-service template (CMake-configured)
 ├── scripts/        # version-consistency checker
@@ -29,6 +31,7 @@ kde-bluetooth-smartlocker/
 | Device specs | `include/smartlocker/device_spec.hpp`, `src/device_spec.cpp` | pure MAC/path normalization and auto-selection predicate |
 | BlueZ monitoring | `src/bluez_monitor.cpp` | ObjectManager enumeration, adapter-independent MAC mapping, RSSI caching, InterfacesRemoved |
 | Plasma UI | `plasmoid/contents/ui/` | `main.qml`, `DevicePolicyRow.qml` |
+| Quickshell UI | `examples/quickshell/shell.qml` | standalone `FloatingWindow`; reuses the same `org.kde.smartlocker` plugin, no extra C++ |
 | QML↔daemon bridge | `src/qml_plugin.cpp` | `SmartLockerClient` D-Bus client |
 | Tests | `tests/state_machine_test.cpp` | custom harness, not QTest |
 | Packaging / NixOS module | `flake.nix` | inline module, hardened user unit |
@@ -69,6 +72,7 @@ kde-bluetooth-smartlocker/
 - Device specs and D-Bus IDs use canonical uppercase colon-separated Bluetooth MAC addresses; legacy object paths are accepted only as config input.
 - Empty device config dynamically watches every BlueZ Device1 marked paired or trusted.
 - `InterfacesRemoved` from BlueZ = device absence.
+- An unavailable Bluetooth adapter never **arms** a new absence countdown (`--lock-when-bluetooth-off` opts out); a countdown already running when the radio dropped still completes.
 
 ## COMMANDS
 ```bash

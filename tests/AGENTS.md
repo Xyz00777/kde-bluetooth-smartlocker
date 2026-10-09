@@ -6,7 +6,7 @@ Two hand-written C++ test executables: `state_machine_test.cpp` covering the pur
 ## WHERE TO LOOK
 | Task | File | Notes |
 |------|------|-------|
-| State-machine unit tests | `state_machine_test.cpp` | lock latch, snooze, resume grace, RSSI hysteresis, disabled, device removal |
+| State-machine unit tests | `state_machine_test.cpp` | lock latch, snooze, resume grace, RSSI hysteresis, disabled, device removal, Bluetooth-off policy (default stop vs `--lock-when-bluetooth-off` opt-in, and countdown preservation) |
 | BlueZ monitor tests | `bluez_monitor_test.cpp` | `PropertiesChanged`, `InterfacesAdded`/`InterfacesRemoved`, duplicate-path union, stale RSSI, name pruning, empty-Alias fallback, failed replies, configured-but-absent devices |
 | Lock verification | `lock_verification_test.cpp` | the pure fail-open rule in `lockIsVerified()` |
 | Lock execution | `lock_path_test.sh` | runs the real daemon to the lock path with a recording lock command |

@@ -248,6 +248,14 @@ void StateMachine::updateState(const TimePoint now) {
         state_ = MachineState::Locked;
         return;
     }
+    // An unpowered adapter reports no presence, so by default it must never *arm* a new absence
+    // countdown: switching Bluetooth off at the desk is not evidence of leaving. A countdown that
+    // was already running is deliberately left alone -- the device was observed absent before the
+    // radio dropped, so that evidence still holds (testControllerFailureDuringAbsenceCountdownPreservesDeadline).
+    if (!bluetoothAvailable_ && !configuration_.lockWhenBluetoothUnavailable && !awaySince_.has_value()) {
+        state_ = MachineState::Error;
+        return;
+    }
     if (!awaySince_.has_value()) {
         awaySince_ = now;
     }

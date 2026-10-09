@@ -60,19 +60,56 @@ void testStartupBluetoothFailureDoesNotLock() {
     require(machine.state() == MachineState::Error);
 }
 
-void testRuntimeBluetoothFailureLocksAfterAwayDuration() {
+StateMachineConfiguration configuredForOneDeviceLockingWhenBluetoothOff() {
+    auto configuration = configuredForOneDevice();
+    configuration.lockWhenBluetoothUnavailable = true;
+    return configuration;
+}
+
+void testBluetoothUnavailableDoesNotLockByDefault() {
     // Given: Bluetooth has produced a present observation.
     StateMachine machine{configuredForOneDevice()};
     machine.setBluetoothAvailable(true, at(0));
     machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
 
-    // When: the monitor becomes unavailable while locking remains enabled.
+    // When: the adapter is switched off, which carries no presence information at all.
     machine.setBluetoothAvailable(false, at(1));
 
-    // Then: no lock occurs before the full away duration, but one follows it.
+    // Then: no lock is ever requested, however long the adapter stays off.
+    require(machine.advanceTo(at(10)) == Action::None);
+    require(machine.advanceTo(at(10'000)) == Action::None);
+    require(machine.state() == MachineState::Error);
+}
+
+void testBluetoothUnavailableLocksWhenExplicitlyOptedIn() {
+    // Given: the operator chose the fail-secure behaviour.
+    StateMachine machine{configuredForOneDeviceLockingWhenBluetoothOff()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
+    machine.setBluetoothAvailable(false, at(1));
+
+    // Then: the away duration still gates the lock, exactly as before.
     require(machine.advanceTo(at(10)) == Action::None);
     require(machine.advanceTo(at(11)) == Action::Lock);
     require(machine.state() == MachineState::Locked);
+}
+
+void testBluetoothReturnAfterIdleAdapterStartsFreshCountdown() {
+    // Given: the adapter was switched off while the device was present, so no countdown was armed.
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
+
+    // When: the adapter returns with the device now absent.
+    machine.setBluetoothAvailable(false, at(1));
+    require(machine.advanceTo(at(500)) == Action::None);
+    machine.setBluetoothAvailable(true, at(501));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(501));
+
+    // Then: the countdown starts from the adapter's return rather than expiring immediately, because
+    // nothing was observed during the outage.
+    require(machine.advanceTo(at(510)) == Action::None);
+    require(machine.advanceTo(at(511)) == Action::Lock);
 }
 
 void testAwayDurationBoundaryIsInclusive() {
@@ -487,7 +524,9 @@ void testAutoSelectionRequiresPairedOrTrusted() {
 
 int main() {
     testStartupBluetoothFailureDoesNotLock();
-    testRuntimeBluetoothFailureLocksAfterAwayDuration();
+    testBluetoothUnavailableDoesNotLockByDefault();
+    testBluetoothUnavailableLocksWhenExplicitlyOptedIn();
+    testBluetoothReturnAfterIdleAdapterStartsFreshCountdown();
     testAwayDurationBoundaryIsInclusive();
     testDeviceReturnBeforeDeadlineCancelsPendingLock();
     testEmptyDeviceSetNeverLocks();
