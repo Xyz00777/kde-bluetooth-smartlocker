@@ -13,7 +13,7 @@
       # minor-version ABI mismatch.
       mkPackage = pkgs: pkgs.stdenv.mkDerivation {
         pname = "kde-bluetooth-smartlocker";
-        version = "0.16.0";
+        version = "0.16.1";
         src = self;
         # dbus is needed by the test suite, which runs a private message bus so BlueZ
         # signals are actually routed rather than dropped by a peer-to-peer endpoint.

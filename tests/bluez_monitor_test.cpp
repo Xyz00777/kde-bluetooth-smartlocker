@@ -118,6 +118,16 @@ public slots:
     }
 
     void publish(const BluezObjects& objects) { objects_ = objects; }
+    void updateDeviceProperties(const QVariantMap& changed) {
+        auto device = objects_.find(QDBusObjectPath(kDevicePath));
+        if (device == objects_.end()) {
+            return;
+        }
+        QVariantMap& properties = (*device)[QStringLiteral("org.bluez.Device1")];
+        for (auto property = changed.cbegin(); property != changed.cend(); ++property) {
+            properties.insert(property.key(), property.value());
+        }
+    }
     void setFailWithError(const bool value) { failWithError_ = value; }
     void emitInterfacesAdded(const QDBusObjectPath& path, const BluezInterfaces& interfaces) {
         Q_EMIT InterfacesAdded(path, interfaces);
@@ -140,15 +150,19 @@ class FakeProperties final : public QObject {
     Q_CLASSINFO("D-Bus Interface", "org.freedesktop.DBus.Properties")
 
 public:
-    using QObject::QObject;
+    explicit FakeProperties(FakeBluez* bluez) : bluez_(bluez) {}
 
 public slots:
     void emitChanged(const QString& interfaceName, const QVariantMap& changed) {
+        bluez_->updateDeviceProperties(changed);
         Q_EMIT PropertiesChanged(interfaceName, changed, QStringList{});
     }
 
 signals:
     void PropertiesChanged(const QString& interfaceName, const QVariantMap& changed, const QStringList& invalidated);
+
+private:
+    FakeBluez* bluez_;
 };
 
 // Owns the org.bluez name and exports the fakes.
@@ -176,7 +190,7 @@ protected:
             return;
         }
         auto* manager = new FakeBluez;
-        auto* properties = new FakeProperties;
+        auto* properties = new FakeProperties(manager);
         // The properties object must sit at the device object path: BluezMonitor resolves
         // the device from message.path() and re-enumerates for anything else.
         if (!bus.registerObject(QStringLiteral("/"), manager,
