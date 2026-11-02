@@ -4,6 +4,8 @@
 
 Because the daemon communicates over session D-Bus and the native QML extension plugin `org.kde.smartlocker` only depends on Qt 6 Core, DBus, and Qml (without any KDE Frameworks or Plasma library dependencies), it can be used directly in Quickshell widgets, status bars, and floating panels.
 
+This guide covers the **generic Quickshell** integration. `org.kde.smartlocker` is a native QML plugin, so the copy you import must be built with the same Qt minor version as the Quickshell build; mixing Qt minor versions can fail to load the module. If you use **DankMaterialShell (DMS)**, use the dedicated [DMS plugin](dms.md) instead: it is pure QML, talks to the daemon over D-Bus, and does not depend on the native module.
+
 ## 1. Running the Example Configuration
 
 An example standalone floating window configuration is provided at [`examples/quickshell/shell.qml`](../examples/quickshell/shell.qml).

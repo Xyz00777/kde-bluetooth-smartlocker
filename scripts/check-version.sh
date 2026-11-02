@@ -1,9 +1,10 @@
 #!/bin/sh
-# Verifies that the application version is identical across all four sources:
+# Verifies that the application version is identical across all five sources:
 #   - CMakeLists.txt         (project VERSION)
 #   - flake.nix              (version = "...")
 #   - src/main.cpp           (setApplicationVersion("..."))
 #   - plasmoid/metadata.json ("Version": "...")
+#   - dms-plugin/plugin.json ("version": "...")
 # Exits 1 (listing the mismatching files) when they disagree.
 set -u
 
@@ -14,13 +15,20 @@ cmake_version=$(sed -n 's/.*project([^)]*VERSION \([0-9][0-9.]*\).*/\1/p' CMakeL
 nix_version=$(sed -n 's/.*version = "\([0-9][0-9.]*\)".*/\1/p' flake.nix | head -n 1)
 cpp_version=$(sed -n 's/.*setApplicationVersion("\([0-9][0-9.]*\)").*/\1/p' src/main.cpp | head -n 1)
 json_version=$(sed -n 's/.*"Version": "\([0-9][0-9.]*\)".*/\1/p' plasmoid/metadata.json | head -n 1)
+if [ -f dms-plugin/plugin.json ]; then
+    dms_version=$(sed -n 's/.*"version": "\([0-9][0-9.]*\)".*/\1/p' dms-plugin/plugin.json | head -n 1)
+else
+    dms_version=""
+    echo "check-version: dms-plugin/plugin.json not found" >&2
+fi
 
 fail=0
 for entry in \
     "CMakeLists.txt:$cmake_version" \
     "flake.nix:$nix_version" \
     "src/main.cpp:$cpp_version" \
-    "plasmoid/metadata.json:$json_version"; do
+    "plasmoid/metadata.json:$json_version" \
+    "dms-plugin/plugin.json:$dms_version"; do
     file=${entry%%:*}
     version=${entry#*:}
     if [ -z "$version" ]; then
@@ -33,7 +41,7 @@ for entry in \
 done
 
 if [ "$fail" -ne 0 ]; then
-    echo "check-version: version mismatch; make all four sources agree before committing" >&2
+    echo "check-version: version mismatch; make all version sources agree before committing" >&2
     exit 1
 fi
 

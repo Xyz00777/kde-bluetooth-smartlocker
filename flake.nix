@@ -6,51 +6,56 @@
   outputs = { self, nixpkgs }:
     let
       forAllSystems = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ];
+
+      # Build the package against a caller-supplied nixpkgs. The NixOS module
+      # passes the consuming system's `pkgs` so the native QML plugin is built
+      # against the same Qt as the user's Plasma and cannot hit a Qt
+      # minor-version ABI mismatch.
+      mkPackage = pkgs: pkgs.stdenv.mkDerivation {
+        pname = "kde-bluetooth-smartlocker";
+        version = "0.16.0";
+        src = self;
+        # dbus is needed by the test suite, which runs a private message bus so BlueZ
+        # signals are actually routed rather than dropped by a peer-to-peer endpoint.
+        nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.dbus pkgs.kdePackages.kirigami.unwrapped pkgs.qt6.wrapQtAppsHook ];
+        buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
+        cmakeFlags = [ "-DBUILD_TESTING=ON" ];
+        doCheck = true;
+        checkPhase = ''
+          cd "$NIX_BUILD_TOP/$sourceRoot"
+          # qmllint cannot auto-discover QML import paths (nixpkgs issue #31725),
+          # so pass them explicitly with -I. The org.kde.smartlocker module is
+          # provided by plasmoid/qml/org/kde/smartlocker, whose native plugin
+          # libsmartlockerqml.so only exists after the build, so qmllint cannot
+          # load the C++ type during lint. Hence "SmartLockerClient was not found"
+          # / "Unused import" diagnostics are unavoidable and must be tolerated.
+          # We still FAIL the build on genuine unresolved imports ("Failed to import").
+          qmllint \
+            -I "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
+            -I "${pkgs.kdePackages.kirigami.unwrapped}/lib/qt-6/qml" \
+            -I "${pkgs.kdePackages.libplasma}/lib/qt-6/qml" \
+            -I "${pkgs.quickshell}/lib/qt-6/qml" \
+            -I plasmoid/qml \
+            plasmoid/contents/ui/main.qml \
+            plasmoid/contents/ui/DevicePolicyRow.qml \
+            examples/quickshell/shell.qml > qmllint.log 2>&1
+          qmllint_status=$?
+          grep -v "SmartLockerClient was not found" qmllint.log \
+            | grep -v "Unused import" \
+            > qmllint.filtered.log || true
+          if [ "$qmllint_status" -ne 0 ] || grep -q "Failed to import" qmllint.filtered.log; then
+            cat qmllint.filtered.log
+            exit 1
+          fi
+          cd "$NIX_BUILD_TOP/$sourceRoot/build"
+          ctest --output-on-failure
+        '';
+      };
+
     in {
-      packages = forAllSystems (system:
-        let
-          pkgs = import nixpkgs { inherit system; };
-        in {
-          default = pkgs.stdenv.mkDerivation {
-            pname = "kde-bluetooth-smartlocker";
-            version = "0.15.0";
-            src = self;
-            # dbus is needed by the test suite, which runs a private message bus so BlueZ
-            # signals are actually routed rather than dropped by a peer-to-peer endpoint.
-            nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.dbus pkgs.qt6.wrapQtAppsHook ];
-            buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative pkgs.kdePackages.libplasma ];
-            cmakeFlags = [ "-DBUILD_TESTING=ON" ];
-            doCheck = true;
-            checkPhase = ''
-              cd "$NIX_BUILD_TOP/$sourceRoot"
-              # qmllint cannot auto-discover QML import paths (nixpkgs issue #31725),
-              # so pass them explicitly with -I. The org.kde.smartlocker module is
-              # provided by plasmoid/qml/org/kde/smartlocker, whose native plugin
-              # libsmartlockerqml.so only exists after the build, so qmllint cannot
-              # load the C++ type during lint. Hence "SmartLockerClient was not found"
-              # / "Unused import" diagnostics are unavoidable and must be tolerated.
-              # We still FAIL the build on genuine unresolved imports ("Failed to import").
-              qmllint \
-                -I "${pkgs.qt6.qtdeclarative}/lib/qt-6/qml" \
-                -I "${pkgs.kdePackages.libplasma}/lib/qt-6/qml" \
-                -I "${pkgs.quickshell}/lib/qt-6/qml" \
-                -I plasmoid/qml \
-                plasmoid/contents/ui/main.qml \
-                plasmoid/contents/ui/DevicePolicyRow.qml \
-                examples/quickshell/shell.qml > qmllint.log 2>&1
-              qmllint_status=$?
-              grep -v "SmartLockerClient was not found" qmllint.log \
-                | grep -v "Unused import" \
-                > qmllint.filtered.log || true
-              if [ "$qmllint_status" -ne 0 ] || grep -q "Failed to import" qmllint.filtered.log; then
-                cat qmllint.filtered.log
-                exit 1
-              fi
-              cd "$NIX_BUILD_TOP/$sourceRoot/build"
-              ctest --output-on-failure
-            '';
-          };
-        });
+      packages = forAllSystems (system: {
+        default = mkPackage (import nixpkgs { inherit system; });
+      });
 
       devShells = forAllSystems (system:
         let
@@ -65,6 +70,7 @@
               pkgs.qt6.qtdeclarative
               pkgs.qt6.qttools
               pkgs.kdePackages.plasma-sdk
+              pkgs.kdePackages.kirigami.unwrapped
               pkgs.kdePackages.libplasma
               pkgs.kdePackages.plasma-desktop
               pkgs.quickshell
@@ -77,8 +83,8 @@
               # bin/ to libexec/; libexec is not on the mkShell PATH by default.
               # Add both libexec and bin to support different Qt packaging layouts.
               export PATH="${pkgs.qt6.qtdeclarative}/libexec:${pkgs.qt6.qtdeclarative}/bin:$PATH"
-              export QML_IMPORT_PATH="${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml:${pkgs.quickshell}/lib/qt-6/qml"
-              export QML2_IMPORT_PATH="${pkgs.kdePackages.plasma-desktop}/lib/qt-6/qml:${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml:${pkgs.quickshell}/lib/qt-6/qml"
+              export QML_IMPORT_PATH="${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.kirigami.unwrapped}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml:${pkgs.quickshell}/lib/qt-6/qml"
+              export QML2_IMPORT_PATH="${pkgs.kdePackages.plasma-desktop}/lib/qt-6/qml:${pkgs.qt6.qtdeclarative}/lib/qt-6/qml:${pkgs.kdePackages.kirigami.unwrapped}/lib/qt-6/qml:${pkgs.kdePackages.libplasma}/lib/qt-6/qml:${pkgs.quickshell}/lib/qt-6/qml"
               export QT_PLUGIN_PATH="${pkgs.qt6.qtbase}/lib/qt-6/plugins"
             '';
           };
@@ -97,7 +103,21 @@
             enable = lib.mkEnableOption "the KDE Bluetooth SmartLocker user service";
             package = lib.mkOption {
               type = lib.types.package;
-              default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+              # Build against the consuming system's nixpkgs so the native QML
+              # plugin matches the user's Plasma/Qt minor version.
+              default = mkPackage pkgs;
+            };
+            installDmsPlugin = lib.mkOption {
+              type = lib.types.bool;
+              default = true;
+              description = ''
+                Install the DankMaterialShell (DMS) plugin system-wide at
+                /etc/xdg/quickshell/dms-plugins/bluetoothSmartLocker, where DMS
+                1.6.2 discovers plugins. DMS hardcodes /etc/xdg/quickshell/dms-plugins
+                and does not search XDG_CONFIG_DIRS. Set this to false when the same
+                plugin is installed through DMS's own home-manager or NixOS plugin
+                option, so the two installs do not collide under /etc.
+              '';
             };
             devices = lib.mkOption {
               type = lib.types.listOf lib.types.str;
@@ -147,6 +167,10 @@
           };
           config = lib.mkIf cfg.enable {
             environment.systemPackages = [ cfg.package ];
+            environment.etc = lib.mkIf cfg.installDmsPlugin {
+              "xdg/quickshell/dms-plugins/bluetoothSmartLocker".source =
+                "${cfg.package}/share/kde-bluetooth-smartlocker/dms-plugin";
+            };
             assertions = [
               {
                 assertion = builtins.all validDeviceSpec cfg.devices;

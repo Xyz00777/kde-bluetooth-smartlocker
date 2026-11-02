@@ -5,7 +5,7 @@
 **Branch:** main
 
 ## OVERVIEW
-Lock-only Bluetooth presence daemon for KDE Plasma 6. Watches BlueZ devices over system D-Bus; when every configured device is absent for the away duration, it requests a session lock via `loginctl lock-session`. **Bluetooth presence never unlocks.** Stack: C++20, Qt6 (Core/DBus/Qml), CMake, Nix.
+Lock-only Bluetooth presence daemon for KDE Plasma 6 and DankMaterialShell (DMS). Watches BlueZ devices over system D-Bus; when every configured device is absent for the away duration, it requests a session lock via `loginctl lock-session`. **Bluetooth presence never unlocks.** Stack: C++20, Qt6 (Core/DBus/Qml), CMake, Nix.
 
 ## STRUCTURE
 ```
@@ -13,8 +13,9 @@ kde-bluetooth-smartlocker/
 ├── src/            # C++ impl: main, daemon, bluez_monitor, state_machine, qml_plugin
 ├── include/smartlocker/  # public headers, 1:1 with src/
 ├── plasmoid/       # Plasma 6 package: QML UI + native QML plugin module
+├── dms-plugin/     # DankMaterialShell plugin: pure QML over D-Bus (busctl), no native module
 ├── examples/quickshell/ # runnable Quickshell config reusing the same QML plugin
-├── docs/           # integration guides (quickshell.md)
+├── docs/           # integration guides (quickshell.md, dms.md)
 ├── tests/          # single custom-harness test executable
 ├── systemd/        # user-service template (CMake-configured)
 ├── scripts/        # version-consistency checker
@@ -31,6 +32,8 @@ kde-bluetooth-smartlocker/
 | Device specs | `include/smartlocker/device_spec.hpp`, `src/device_spec.cpp` | pure MAC/path normalization and auto-selection predicate |
 | BlueZ monitoring | `src/bluez_monitor.cpp` | ObjectManager enumeration, adapter-independent MAC mapping, RSSI caching, InterfacesRemoved |
 | Plasma UI | `plasmoid/contents/ui/` | `main.qml`, `DevicePolicyRow.qml` |
+| DMS plugin | `dms-plugin/` | pure QML widget + `plugin.json`; state/controls over D-Bus via `busctl`, no native module |
+| DMS install / enable | `flake.nix` (`installDmsPlugin`), `CMakeLists.txt` | installed at `share/kde-bluetooth-smartlocker/dms-plugin`; module links it to `/etc/xdg/quickshell/dms-plugins/bluetoothSmartLocker` |
 | Quickshell UI | `examples/quickshell/shell.qml` | standalone `FloatingWindow`; reuses the same `org.kde.smartlocker` plugin, no extra C++ |
 | QML↔daemon bridge | `src/qml_plugin.cpp` | `SmartLockerClient` D-Bus client |
 | Tests | `tests/state_machine_test.cpp` | custom harness, not QTest |
@@ -50,9 +53,9 @@ kde-bluetooth-smartlocker/
 - **C++20**, `-Wall -Wextra -Wpedantic -Werror` on every target. No `.clang-format`/`.editorconfig`/`.clang-tidy` — warnings-as-errors is the only style gate.
 - **No KDE Frameworks / ECM / KConfig / i18n.** Plain Qt6 Core/DBus/Qml. Persistence via `QSettings` (`kde-bluetooth-smartlocker/daemon`).
 - **Flat `src/`** — no per-module subdirs; headers under `include/smartlocker/` mirror `src/` 1:1.
-- **Two runtime entry paths**, not one GUI app: headless daemon (`main.cpp`, systemd) + Plasma QML frontend (`main.qml` via `SmartLockerClient`).
-- **Version defined in 4 places** that must stay in sync: `CMakeLists.txt`, `flake.nix`, `src/main.cpp`, `plasmoid/metadata.json`. Checked by `scripts/check-version.sh`, wired as `.githooks/pre-commit` (opt-in per clone via `git config core.hooksPath .githooks`); CI runs the same checker on every push and pull request.
-- **Every change bumps the version** — no change lands without a version increase. Features/behavior changes → minor bump (`0.13.2` → `0.14.0`); bugfixes → patch bump (`0.13.2` → `0.13.3`). Bump all 4 places in the same commit.
+- **Three frontends over one daemon**, not one GUI app: headless daemon (`main.cpp`, systemd) + Plasma QML frontend (`main.qml` via `SmartLockerClient`) + pure-QML DMS plugin (`dms-plugin/`, D-Bus via `busctl`, no native module).
+- **Version defined in 5 places** that must stay in sync: `CMakeLists.txt`, `flake.nix`, `src/main.cpp`, `plasmoid/metadata.json`, `dms-plugin/plugin.json`. Checked by `scripts/check-version.sh`, wired as `.githooks/pre-commit` (opt-in per clone via `git config core.hooksPath .githooks`); CI runs the same checker on every push and pull request.
+- **Every change bumps the version** — no change lands without a version increase. Features/behavior changes → minor bump (`0.13.2` → `0.14.0`); bugfixes → patch bump (`0.13.2` → `0.13.3`). Bump all 5 places in the same commit.
 - `Q_LOGGING_CATEGORY` under `org.kde.smartlocker` for daemon, `org.kde.smartlocker.main` for main.
 
 ## ANTI-PATTERNS (THIS PROJECT)
@@ -96,5 +99,6 @@ nix develop
 - `qmlimportscanner` moved to `libexec/` in qtdeclarative 6.11.1; add it to `PATH` in the dev shell.
 - If `PrepareForSleep` subscription fails, resume grace does not apply (logged warning).
 - Persisted RSSI thresholds are range-checked and repaired on load.
+- The DMS plugin is pure QML and uses `busctl`, so it does not import `org.kde.smartlocker` and is not coupled to the native plugin's Qt minor version. The NixOS module installs it with `environment.etc` because DMS hardcodes `/etc/xdg/quickshell/dms-plugins` and does not search `XDG_CONFIG_DIRS`.
 - Real Plasma-session lock test and rendered Plasma visual QA are deployment checks, not automated tests.
 - `result` is a dangling Nix symlink; `.codegraph/`, `.omo/`, `ses_*` are agent artifacts — ignore for structure.

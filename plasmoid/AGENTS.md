@@ -6,10 +6,10 @@ The Plasma 6 plasmoid package: QML UI plus the native QML plugin module (`org.kd
 ## STRUCTURE
 ```
 plasmoid/
-├── metadata.json              # package metadata; "Version" must match 3 other files
+├── metadata.json              # package metadata; "Version" must match the other version sources
 ├── contents/ui/
 │   ├── main.qml               # PlasmoidItem root: status, global switch, device list, snooze
-│   └── DevicePolicyRow.qml    # per-device: enable switch + RSSI threshold spin box
+│   └── DevicePolicyRow.qml    # per-device: enable switch + RSSI threshold slider
 └── qml/org/kde/smartlocker/   # QML module source (src/ layout)
     └── qmldir                 # declares module + native smartlockerqml plugin
 ```
@@ -26,10 +26,10 @@ plasmoid/
 | Task | File | Notes |
 |------|------|-------|
 | Plasmoid root / state | `contents/ui/main.qml` | `PlasmoidItem`, `SmartLockerClient` instance |
-| Per-device controls | `contents/ui/DevicePolicyRow.qml` | switch + RSSI spin box, `Connections` to settings |
+| Per-device controls | `contents/ui/DevicePolicyRow.qml` | switch + RSSI slider, `Connections` to settings |
 | QML module registration | `qml/org/kde/smartlocker/qmldir` | native plugin `smartlockerqml` |
 | QML module install target | `CMakeLists.txt` | `${QT6_INSTALL_QML}/org/kde/smartlocker` |
-| Version | `metadata.json` | must stay in sync with CMake/flake/main.cpp |
+| Version | `metadata.json` | must stay in sync with the other version sources (CMake/flake/main.cpp/plugin.json) |
 
 ## CONVENTIONS
 - **Native Plasma controls only** — no custom colors, fonts, borders, shadows, or gradients (see `DESIGN.md`). Styling comes from the active KDE theme.
@@ -47,5 +47,5 @@ plasmoid/
 
 ## UNIQUE STYLES
 - `main.qml` uses `compactRepresentation` (state label) + `fullRepresentation` (controls).
-- `DevicePolicyRow` re-syncs switch/spin-box from `onSettingsChanged` so external changes reflect.
+- `DevicePolicyRow` re-syncs switch/slider from `onSettingsChanged` so external changes reflect.
 - `SmartLockerClient` reports `"unavailable"` when the daemon service is not registered.

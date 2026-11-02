@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(kde_bluetooth_smartlocker VERSION 0.15.0 LANGUAGES CXX)
+project(kde_bluetooth_smartlocker VERSION 0.16.0 LANGUAGES CXX)
 
 include(CTest)
 set(CMAKE_AUTOMOC ON)
@@ -40,6 +40,7 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/org.kde.SmartLocker1.service DESTINATI
 install(FILES plasmoid/metadata.json DESTINATION share/plasma/plasmoids/org.kde.smartlocker)
 install(DIRECTORY plasmoid/contents DESTINATION share/plasma/plasmoids/org.kde.smartlocker)
 install(DIRECTORY examples/quickshell DESTINATION share/kde-bluetooth-smartlocker/examples)
+install(DIRECTORY dms-plugin DESTINATION share/kde-bluetooth-smartlocker)
 install(FILES completions/bash/kde-bluetooth-smartlocker DESTINATION share/bash-completion/completions)
 install(FILES completions/zsh/_kde-bluetooth-smartlocker DESTINATION share/zsh/site-functions)
 

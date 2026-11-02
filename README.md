@@ -1,6 +1,6 @@
 # Bluetooth SmartLocker
 
-Lock-only Bluetooth presence daemon for KDE Plasma 6, Quickshell, and desktop environments. When every configured device is absent for the configured duration, it requests a session lock with `loginctl lock-session`. Bluetooth presence never unlocks the session.
+Lock-only Bluetooth presence daemon for KDE Plasma 6 and DankMaterialShell (DMS), with additional support for Quickshell and desktop environments. When every configured device is absent for the configured duration, it requests a session lock with `loginctl lock-session`. Bluetooth presence never unlocks the session.
 
 ## Safety model
 
@@ -66,13 +66,34 @@ Settings are stored by `QSettings` under `$XDG_CONFIG_HOME/kde-bluetooth-smartlo
     enable = true;
     devices = [ "AA:BB:CC:DD:EE:FF" ];
     awaySeconds = 30;
+    # Default true. Installs the DMS plugin to
+    # /etc/xdg/quickshell/dms-plugins/bluetoothSmartLocker.
+    # Set false if you install the same plugin through DMS's own
+    # home-manager or NixOS plugin option, to avoid an /etc collision.
+    installDmsPlugin = true;
   };
 }
 ```
 
+A single import of `nixosModules.default` enables the systemd user service, installs the Plasma plasmoid, and (with `installDmsPlugin`) installs the DMS plugin. The module builds its package against the consuming system's `nixpkgs`, so the native QML plugin matches your Plasma's Qt minor version.
+
+## DankMaterialShell
+
+The same package ships a [DankMaterialShell](https://danklinux.com/) plugin at `share/kde-bluetooth-smartlocker/dms-plugin`. It is pure QML and talks to the daemon over D-Bus through `busctl`; it does **not** load the native `org.kde.smartlocker` QML module, so it keeps working even when DMS is built against a different Qt minor version than Plasma.
+
+When the NixOS module is imported, `installDmsPlugin = true` (the default) links that directory to `/etc/xdg/quickshell/dms-plugins/bluetoothSmartLocker`, which is where DMS 1.6.2 looks for system-wide plugins.
+
+Enable it once in **DMS Settings → Plugins → "Bluetooth SmartLocker"**, then add the widget to a DankBar. DMS 1.6.2 has no manifest flag that auto-enables bar widgets; the enabled state is per-user in `plugin_settings.json`. The same enable step can be performed from a terminal:
+
+```sh
+dms ipc call plugins enable bluetoothSmartLocker
+```
+
+See [DMS Integration](docs/dms.md) for behavior, settings, and troubleshooting.
+
 ## Quickshell
 
-The native QML extension plugin `org.kde.smartlocker` only depends on Qt 6 Core, DBus, and Qml, making it directly usable in [Quickshell](https://outfoxxed.me/quickshell/) without any KDE Frameworks or Plasma dependencies.
+The native QML extension plugin `org.kde.smartlocker` only depends on Qt 6 Core, DBus, and Qml, making it directly usable in [Quickshell](https://outfoxxed.me/quickshell/) without any KDE Frameworks or Plasma dependencies. Because it is a native plugin, it must be built with the same Qt minor version as the Quickshell build. DankMaterialShell users should use the DMS plugin above instead, which avoids that constraint.
 
 An example standalone floating window configuration is provided at `examples/quickshell/shell.qml`:
 
@@ -108,12 +129,13 @@ The daemon logs lock-command failures, invalid startup paths, and duplicate devi
 
 ### Version consistency hook
 
-The application version is defined in four places that must stay in sync:
+The application version is defined in five places that must stay in sync:
 
 - `CMakeLists.txt` — `project(... VERSION ...)`
 - `flake.nix` — `version = "..."`
 - `src/main.cpp` — `setApplicationVersion("...")`
 - `plasmoid/metadata.json` — `"Version": "..."`
+- `dms-plugin/plugin.json` — `"version": "..."`
 
 A pre-commit hook (`.githooks/pre-commit`, which invokes `scripts/check-version.sh`) aborts any commit where these disagree. The hook only runs if git's `core.hooksPath` points at `.githooks`, and that setting lives in the local `.git/config` of each clone, where git cannot track it. Enable the hook per clone with:
 
@@ -121,7 +143,7 @@ A pre-commit hook (`.githooks/pre-commit`, which invokes `scripts/check-version.
 git config core.hooksPath .githooks
 ```
 
-That local setting overrides any global hooks path. Regardless of the hook, CI runs `./scripts/check-version.sh` on every push and pull request, so a version mismatch fails the build either way. When bumping the version, update all four sources in the same commit.
+That local setting overrides any global hooks path. Regardless of the hook, CI runs `./scripts/check-version.sh` on every push and pull request, so a version mismatch fails the build either way. When bumping the version, update all five sources in the same commit.
 
 Run the checker manually with:
 
@@ -131,4 +153,4 @@ Run the checker manually with:
 
 ## Status
 
-The lock-only daemon, BlueZ monitoring, RSSI policy, D-Bus API (with a session-locked mutation gate), lock retry and verification, graphical Plasma controls, CMake build, Nix package, and NixOS module are implemented and covered by automated tests. The lock path is exercised end to end by a test that runs the real daemon against a recording lock command, so no session is ever locked. A real Plasma-session lock test and rendered Plasma visual QA remain deployment checks rather than automated build tests.
+The lock-only daemon, BlueZ monitoring, RSSI policy, D-Bus API (with a session-locked mutation gate), lock retry and verification, graphical Plasma controls, the DMS plugin, CMake build, Nix package, and NixOS module are implemented and covered by automated tests. The lock path is exercised end to end by a test that runs the real daemon against a recording lock command, so no session is ever locked. A real Plasma-session lock test and rendered Plasma visual QA remain deployment checks rather than automated build tests.

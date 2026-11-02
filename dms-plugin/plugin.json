@@ -1,0 +1,14 @@
+{
+  "id": "bluetoothSmartLocker",
+  "name": "Bluetooth SmartLocker",
+  "description": "Lock-only Bluetooth presence monitoring. Locks the session once every watched device has been away for the configured delay; presence never unlocks.",
+  "version": "0.16.0",
+  "author": "KDE Bluetooth SmartLocker contributors",
+  "type": "widget",
+  "capabilities": ["dankbar-widget"],
+  "component": "./SmartLockerWidget.qml",
+  "settings": "./SmartLockerSettings.qml",
+  "icon": "bluetooth",
+  "permissions": ["settings_read", "settings_write"],
+  "requires_dms": ">=1.5.0"
+}
