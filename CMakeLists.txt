@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(kde_bluetooth_smartlocker VERSION 0.16.1 LANGUAGES CXX)
+project(kde_bluetooth_smartlocker VERSION 0.18.0 LANGUAGES CXX)
 
 include(CTest)
 set(CMAKE_AUTOMOC ON)
@@ -83,6 +83,10 @@ if(BUILD_TESTING)
     set_tests_properties(daemon-duplicate-device PROPERTIES WILL_FAIL TRUE)
     add_test(NAME daemon-minimum-present-exceeds-devices COMMAND kde-bluetooth-smartlocker --device /org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF --minimum-present 2)
     set_tests_properties(daemon-minimum-present-exceeds-devices PROPERTIES WILL_FAIL TRUE)
+    add_test(NAME daemon-device-settings-api
+        COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/device_settings_dbus_test.sh $<TARGET_FILE:kde-bluetooth-smartlocker>
+    )
+    set_tests_properties(daemon-device-settings-api PROPERTIES TIMEOUT 15 SKIP_RETURN_CODE 77)
     # Drives the real daemon to the lock path with a recording lock command, so the screen can
     # never actually be locked. Verifies the absence -> countdown -> lock-session execution.
     add_test(NAME daemon-lock-path

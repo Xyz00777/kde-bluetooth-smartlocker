@@ -14,7 +14,7 @@ Q_LOGGING_CATEGORY(smartLockerMainLog, "org.kde.smartlocker.main")
 int main(int argc, char* argv[]) {
     QCoreApplication application{argc, argv};
     application.setApplicationName("kde-bluetooth-smartlocker");
-    application.setApplicationVersion("0.16.1");
+    application.setApplicationVersion("0.18.0");
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Lock-only Bluetooth presence daemon for desktop environments");
