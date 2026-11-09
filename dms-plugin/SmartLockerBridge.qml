@@ -13,7 +13,7 @@ Item {
     property var devices: []
     property int snoozeSeconds: 30
     property string lastError: ""
-    property int refreshIntervalSec: 5
+    property int refreshIntervalSec: 2
     readonly property bool available: stateName !== "unavailable"
     readonly property bool monitoring: stateName === "monitoring" || stateName === "away" || stateName === "snoozed"
     signal changed()
@@ -21,13 +21,19 @@ Item {
     // Daemon truth and optimistic values are keyed by canonical MAC address.
     property var internalSettings: ({})
     property var pendingEnabled: ({})
+    property var pendingBleEnabled: ({})
+    property var pendingConnectionEnabled: ({})
     property var pendingThresholds: ({})
+    property var pendingConnectionThresholds: ({})
     property var pendingState: null
     property var mutationQueue: []
     property var currentMutation: null
     property int mutationSeq: 0
     property var pendingEnabledToken: ({})
+    property var pendingBleToken: ({})
+    property var pendingConnectionToken: ({})
     property var pendingThresholdToken: ({})
+    property var pendingConnectionThresholdToken: ({})
     property int pendingStateToken: 0
     property bool refreshAgain: false
     property bool refreshExpected: false
@@ -110,6 +116,24 @@ Item {
             function() { root.commitDevice(addr, "enabled", enabled); root.clearPending(root.pendingEnabled, root.pendingEnabledToken, addr, token); },
             function() { root.clearPending(root.pendingEnabled, root.pendingEnabledToken, addr, token); });
     }
+    function setDeviceBleEnabled(address, enabled) {
+        root.setDeviceScanMode(address, "bleEnabled", enabled, "SetDeviceBleEnabled", root.pendingBleEnabled, root.pendingBleToken);
+    }
+    function setDeviceConnectionEnabled(address, enabled) {
+        root.setDeviceScanMode(address, "connectionEnabled", enabled, "SetDeviceConnectionEnabled", root.pendingConnectionEnabled, root.pendingConnectionToken);
+    }
+    function setDeviceScanMode(address, key, enabled, method, pending, tokens) {
+        var addr = String(address || "");
+        if (addr === "") return;
+        if (!root.available) { root.setLastError("The SmartLocker daemon is not running."); return; }
+        var token = root.nextMutationId();
+        pending[addr] = enabled;
+        tokens[addr] = token;
+        root.changed();
+        root.enqueueMutation(root.commandFor(method, "sb", [addr, enabled ? "true" : "false"]),
+            function() { root.commitDevice(addr, key, enabled); root.clearPending(pending, tokens, addr, token); },
+            function() { root.clearPending(pending, tokens, addr, token); });
+    }
     function setDeviceRssiThreshold(address, thresholdDbm) {
         var addr = String(address || "");
         var threshold = Math.round(Number(thresholdDbm));
@@ -122,6 +146,19 @@ Item {
         root.enqueueMutation(root.commandFor("SetDeviceRssiThreshold", "si", [addr, String(threshold)]),
             function() { root.commitDevice(addr, "rssiThreshold", threshold); root.clearPending(root.pendingThresholds, root.pendingThresholdToken, addr, token); },
             function() { root.clearPending(root.pendingThresholds, root.pendingThresholdToken, addr, token); });
+    }
+    function setDeviceConnectionRssiThreshold(address, thresholdDbm) {
+        var addr = String(address || "");
+        var threshold = Math.round(Number(thresholdDbm));
+        if (addr === "" || !isFinite(threshold)) return;
+        if (!root.available) { root.setLastError("The SmartLocker daemon is not running."); return; }
+        var token = root.nextMutationId();
+        root.pendingConnectionThresholds[addr] = threshold;
+        root.pendingConnectionThresholdToken[addr] = token;
+        root.changed();
+        root.enqueueMutation(root.commandFor("SetDeviceConnectionRssiThreshold", "si", [addr, String(threshold)]),
+            function() { root.commitDevice(addr, "connectionRssiThreshold", threshold); root.clearPending(root.pendingConnectionThresholds, root.pendingConnectionThresholdToken, addr, token); },
+            function() { root.clearPending(root.pendingConnectionThresholds, root.pendingConnectionThresholdToken, addr, token); });
     }
     function deviceName(address) {
         var settings = root.internalSettings[String(address || "")];
@@ -142,6 +179,40 @@ Item {
         var settings = root.internalSettings[addr];
         return settings && typeof settings.rssiThreshold === "number" ? settings.rssiThreshold : -70;
     }
+    function deviceConnectionRssiThreshold(address) {
+        var addr = String(address || "");
+        if (Object.prototype.hasOwnProperty.call(root.pendingConnectionThresholds, addr)) {
+            var pending = root.pendingConnectionThresholds[addr];
+            if (typeof pending === "number") return pending;
+        }
+        var settings = root.internalSettings[addr];
+        if (settings && typeof settings.connectionRssiThreshold === "number") return settings.connectionRssiThreshold;
+        return settings && typeof settings.rssiThreshold === "number" ? settings.rssiThreshold : -70;
+    }
+    function deviceBleRssiAvailable(address) {
+        var settings = root.internalSettings[String(address || "")];
+        return settings && settings.bleRssiAvailable === true;
+    }
+    function deviceBleRssiDbm(address) {
+        var settings = root.internalSettings[String(address || "")];
+        return settings && typeof settings.bleRssiDbm === "number" ? settings.bleRssiDbm : 0;
+    }
+    function deviceConnectionRssiAvailable(address) {
+        var settings = root.internalSettings[String(address || "")];
+        return settings && settings.connectionRssiAvailable === true;
+    }
+    function deviceConnectionRssiDbm(address) {
+        var settings = root.internalSettings[String(address || "")];
+        return settings && typeof settings.connectionRssiDbm === "number" ? settings.connectionRssiDbm : 0;
+    }
+    function deviceBleEnabled(address) { return root.deviceScanEnabled(address, "bleEnabled", root.pendingBleEnabled); }
+    function deviceConnectionEnabled(address) { return root.deviceScanEnabled(address, "connectionEnabled", root.pendingConnectionEnabled); }
+    function deviceScanEnabled(address, key, pending) {
+        var addr = String(address || "");
+        if (Object.prototype.hasOwnProperty.call(pending, addr)) return pending[addr] === true;
+        var settings = root.internalSettings[addr];
+        return settings && typeof settings[key] === "boolean" ? settings[key] : true;
+    }
     function applyRefresh(text, stderrText, exitCode) {
         var sections = root.splitSections(text);
         var parsedState = root.parseState((sections.__SL_STATE__ || []).join("\n"));
@@ -152,9 +223,15 @@ Item {
             if (root.devices.length !== 0) { root.devices = []; changedNow = true; }
             if (Object.keys(root.internalSettings).length !== 0) { root.internalSettings = {}; changedNow = true; }
             if (Object.keys(root.pendingEnabled).length !== 0) { root.pendingEnabled = {}; changedNow = true; }
+            if (Object.keys(root.pendingBleEnabled).length !== 0) { root.pendingBleEnabled = {}; changedNow = true; }
+            if (Object.keys(root.pendingConnectionEnabled).length !== 0) { root.pendingConnectionEnabled = {}; changedNow = true; }
             if (Object.keys(root.pendingThresholds).length !== 0) { root.pendingThresholds = {}; changedNow = true; }
+            if (Object.keys(root.pendingConnectionThresholds).length !== 0) { root.pendingConnectionThresholds = {}; changedNow = true; }
             root.pendingEnabledToken = {};
+            root.pendingBleToken = {};
+            root.pendingConnectionToken = {};
             root.pendingThresholdToken = {};
+            root.pendingConnectionThresholdToken = {};
             root.pendingState = null;
             root.pendingStateToken = 0;
             var errorLine = (sections.__SL_ERROR__ || [])[0] || "";
@@ -229,8 +306,24 @@ Item {
             var name = root.unwrapVariant(props.name);
             var enabled = root.unwrapVariant(props.enabled);
             var threshold = root.unwrapVariant(props.rssiThreshold);
+            var connectionThreshold = root.unwrapVariant(props.connectionRssiThreshold);
+            var bleRssiAvailable = root.unwrapVariant(props.bleRssiAvailable);
+            var bleRssiDbm = root.unwrapVariant(props.bleRssiDbm);
+            var connectionRssiAvailable = root.unwrapVariant(props.connectionRssiAvailable);
+            var connectionRssiDbm = root.unwrapVariant(props.connectionRssiDbm);
+            var bleEnabled = root.unwrapVariant(props.bleEnabled);
+            var connectionEnabled = root.unwrapVariant(props.connectionEnabled);
             result[address] = { name: typeof name === "string" ? name : "",
                 enabled: typeof enabled === "boolean" ? enabled : true,
+                bleEnabled: typeof bleEnabled === "boolean" ? bleEnabled : true,
+                connectionEnabled: typeof connectionEnabled === "boolean" ? connectionEnabled : true,
+                bleRssiAvailable: typeof bleRssiAvailable === "boolean" ? bleRssiAvailable : false,
+                bleRssiDbm: typeof bleRssiDbm === "number" && isFinite(bleRssiDbm) ? Math.round(bleRssiDbm) : 0,
+                connectionRssiAvailable: typeof connectionRssiAvailable === "boolean" ? connectionRssiAvailable : false,
+                connectionRssiDbm: typeof connectionRssiDbm === "number" && isFinite(connectionRssiDbm)
+                    ? Math.round(connectionRssiDbm) : 0,
+                connectionRssiThreshold: typeof connectionThreshold === "number" && isFinite(connectionThreshold)
+                    ? Math.round(connectionThreshold) : (typeof threshold === "number" && isFinite(threshold) ? Math.round(threshold) : -70),
                 rssiThreshold: typeof threshold === "number" && isFinite(threshold) ? Math.round(threshold) : -70 };
         }
         return result;
@@ -290,7 +383,7 @@ Item {
     // do not fall back to the previous daemon value while the refresh is in flight.
     function commitDevice(address, key, value) {
         var current = root.internalSettings[address];
-        var settings = current ? Object.assign({}, current) : { name: "", enabled: true, rssiThreshold: -70 };
+        var settings = current ? Object.assign({}, current) : { name: "", enabled: true, bleEnabled: true, connectionEnabled: true, bleRssiAvailable: false, bleRssiDbm: 0, connectionRssiAvailable: false, connectionRssiDbm: 0, rssiThreshold: -70, connectionRssiThreshold: -70 };
         settings[key] = value;
         var next = Object.assign({}, root.internalSettings);
         next[address] = settings;
