@@ -31,12 +31,18 @@ public slots:
     Q_SCRIPTABLE [[nodiscard]] int ResumeGraceSeconds() const;
     Q_SCRIPTABLE [[nodiscard]] int MinimumPresent() const;
     Q_SCRIPTABLE [[nodiscard]] bool DeviceEnabled(const QString& path) const;
+    Q_SCRIPTABLE [[nodiscard]] bool DeviceBleEnabled(const QString& path) const;
+    Q_SCRIPTABLE [[nodiscard]] bool DeviceConnectionEnabled(const QString& path) const;
     Q_SCRIPTABLE [[nodiscard]] int DeviceRssiThreshold(const QString& path) const;
+    Q_SCRIPTABLE [[nodiscard]] int DeviceConnectionRssiThreshold(const QString& path) const;
     Q_SCRIPTABLE [[nodiscard]] QString DeviceName(const QString& path) const;
     Q_SCRIPTABLE [[nodiscard]] QVariantMap DeviceSettings() const;
     Q_SCRIPTABLE bool SetEnabled(bool enabled);
     Q_SCRIPTABLE bool SetDeviceEnabled(const QString& path, bool enabled);
+    Q_SCRIPTABLE bool SetDeviceBleEnabled(const QString& path, bool enabled);
+    Q_SCRIPTABLE bool SetDeviceConnectionEnabled(const QString& path, bool enabled);
     Q_SCRIPTABLE bool SetDeviceRssiThreshold(const QString& path, int thresholdDbm);
+    Q_SCRIPTABLE bool SetDeviceConnectionRssiThreshold(const QString& path, int thresholdDbm);
     Q_SCRIPTABLE bool Snooze(int seconds);
 
 signals:
@@ -67,6 +73,8 @@ private:
     int rssiHysteresis_{5};
     std::size_t rssiSamples_{3};
     QTimer timer_;
+    QTimer deviceSettingsUpdateTimer_;
+    QTimer rssiExpiryTimer_;
     QTimer verifyTimer_;
     QTimer lockWatchdogTimer_;
     QProcess lockProcess_;

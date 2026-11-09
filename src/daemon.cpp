@@ -1,5 +1,6 @@
 #include "smartlocker/daemon.hpp"
 #include "smartlocker/device_spec.hpp"
+#include "smartlocker/device_rssi_thresholds.hpp"
 
 #include <QCoreApplication>
 #include <QDBusArgument>
@@ -141,17 +142,53 @@ Daemon::Daemon(StateMachineConfiguration configuration, QSet<QString> watchedMac
       rssiThreshold_(rssiThreshold), rssiHysteresis_(rssiHysteresis), rssiSamples_(rssiSamples), prelockNotifications_(prelockNotifications),
       lockCommand_(std::move(lockCommand)) {
     machine_.setEnabled(settings_.value("enabled", true).toBool(), now());
+    bool repairedRssiThresholds = false;
     for (const QString& path : watchedMacs_) {
         const DeviceId id{path.toStdString()};
         machine_.setDeviceEnabled(id, settings_.value(deviceSettingsKey(path, "enabled"), true).toBool(), now());
-        int threshold = settings_.value(deviceSettingsKey(path, "rssiThreshold"), machine_.deviceRssiThreshold(id)).toInt();
-        if (threshold < -100 || threshold > 0) {
-            qCWarning(smartLockerLog) << "ignoring out-of-range persisted RSSI threshold for" << path << ":" << threshold;
-            threshold = machine_.deviceRssiThreshold(id);
-            settings_.setValue(deviceSettingsKey(path, "rssiThreshold"), threshold);
+        machine_.setDeviceBleEnabled(id, settings_.value(deviceSettingsKey(path, "bleEnabled"), true).toBool(), now());
+        machine_.setDeviceConnectionEnabled(id, settings_.value(deviceSettingsKey(path, "connectionEnabled"), true).toBool(), now());
+        const QString bleKey = deviceSettingsKey(path, "rssiThreshold");
+        const QString connectionThresholdKey = deviceSettingsKey(path, "connectionRssiThreshold");
+        const std::optional<int> savedBle = settings_.contains(bleKey) ? std::optional{settings_.value(bleKey).toInt()} : std::nullopt;
+        const std::optional<int> savedConnection = settings_.contains(connectionThresholdKey)
+            ? std::optional{settings_.value(connectionThresholdKey).toInt()} : std::nullopt;
+        const DeviceRssiThresholds thresholds = resolveDeviceRssiThresholds(savedBle, savedConnection, machine_.deviceRssiThreshold(id));
+        if (thresholds.repairBle) {
+            qCWarning(smartLockerLog) << "repairing out-of-range persisted RSSI threshold for" << path << ":" << *savedBle;
+            settings_.setValue(bleKey, thresholds.bleDbm);
+            repairedRssiThresholds = true;
         }
-        machine_.setDeviceRssiThreshold(id, threshold, now());
+        machine_.setDeviceRssiThreshold(id, thresholds.bleDbm, now());
+        if (savedConnection.has_value() && thresholds.migrateConnection) {
+            qCWarning(smartLockerLog) << "ignoring out-of-range persisted connection RSSI threshold for" << path << ":"
+                                      << *savedConnection;
+        }
+        if (thresholds.migrateConnection) {
+            settings_.setValue(connectionThresholdKey, thresholds.connectionDbm);
+            repairedRssiThresholds = true;
+        }
+        machine_.setDeviceConnectionRssiThreshold(id, thresholds.connectionDbm, now());
     }
+    if (repairedRssiThresholds) {
+        persistSettings("migrating or repairing per-device RSSI thresholds");
+    }
+    deviceSettingsUpdateTimer_.setSingleShot(true);
+    deviceSettingsUpdateTimer_.setInterval(100);
+    connect(&deviceSettingsUpdateTimer_, &QTimer::timeout, this, [this] { emit SettingsChanged(); });
+    rssiExpiryTimer_.setSingleShot(true);
+    rssiExpiryTimer_.setInterval(1000);
+    connect(&rssiExpiryTimer_, &QTimer::timeout, this, [this] {
+        emit SettingsChanged();
+        for (const QString& mac : watchedMacs_) {
+            const DeviceId id{mac.toStdString()};
+            if (machine_.deviceLastBleRssiDbm(id, now()).has_value()
+                || machine_.deviceLastConnectionRssiDbm(id, now()).has_value()) {
+                rssiExpiryTimer_.start();
+                return;
+            }
+        }
+    });
     timer_.setInterval(1000);
     connect(&timer_, &QTimer::timeout, this, &Daemon::advance);
     verifyTimer_.setInterval(3000);
@@ -246,9 +283,24 @@ bool Daemon::DeviceEnabled(const QString& path) const {
     return watchedMacs_.contains(mac) && machine_.deviceEnabled(DeviceId{mac.toStdString()});
 }
 
+bool Daemon::DeviceBleEnabled(const QString& path) const {
+    const QString mac = resolveMac(path);
+    return watchedMacs_.contains(mac) && settings_.value(deviceSettingsKey(mac, "bleEnabled"), true).toBool();
+}
+
+bool Daemon::DeviceConnectionEnabled(const QString& path) const {
+    const QString mac = resolveMac(path);
+    return watchedMacs_.contains(mac) && settings_.value(deviceSettingsKey(mac, "connectionEnabled"), true).toBool();
+}
+
 int Daemon::DeviceRssiThreshold(const QString& path) const {
     const QString mac = resolveMac(path);
     return watchedMacs_.contains(mac) ? machine_.deviceRssiThreshold(DeviceId{mac.toStdString()}) : -70;
+}
+
+int Daemon::DeviceConnectionRssiThreshold(const QString& path) const {
+    const QString mac = resolveMac(path);
+    return watchedMacs_.contains(mac) ? machine_.deviceConnectionRssiThreshold(DeviceId{mac.toStdString()}) : -70;
 }
 
 QString Daemon::DeviceName(const QString& path) const {
@@ -259,11 +311,21 @@ QString Daemon::DeviceName(const QString& path) const {
 QVariantMap Daemon::DeviceSettings() const {
     QVariantMap all;
     for (const QString& mac : watchedMacs_) {
+        const DeviceId id{mac.toStdString()};
+        const std::optional<int> bleRssi = machine_.deviceLastBleRssiDbm(id, now());
+        const std::optional<int> connectionRssi = machine_.deviceLastConnectionRssiDbm(id, now());
         // Delegate to the guarded accessors: the state machine throws for unknown ids.
         all.insert(mac, QVariantMap{
                         {"name", DeviceName(mac)},
                         {"enabled", DeviceEnabled(mac)},
+                        {"bleEnabled", DeviceBleEnabled(mac)},
+                        {"connectionEnabled", DeviceConnectionEnabled(mac)},
                         {"rssiThreshold", DeviceRssiThreshold(mac)},
+                        {"connectionRssiThreshold", DeviceConnectionRssiThreshold(mac)},
+                        {"bleRssiAvailable", bleRssi.has_value()},
+                        {"bleRssiDbm", bleRssi.value_or(0)},
+                        {"connectionRssiAvailable", connectionRssi.has_value()},
+                        {"connectionRssiDbm", connectionRssi.value_or(0)},
                     });
     }
     return all;
@@ -297,6 +359,38 @@ bool Daemon::SetDeviceEnabled(const QString& path, const bool enabled) {
     return true;
 }
 
+bool Daemon::SetDeviceBleEnabled(const QString& path, const bool enabled) {
+    if (querySessionLockState() != SessionLockState::Unlocked) {
+        return false;
+    }
+    const QString mac = resolveMac(path);
+    if (!watchedMacs_.contains(mac)) {
+        return false;
+    }
+    machine_.setDeviceBleEnabled(DeviceId{mac.toStdString()}, enabled, now());
+    settings_.setValue(deviceSettingsKey(mac, "bleEnabled"), enabled);
+    persistSettings("changing BLE scanning");
+    publishState();
+    emit SettingsChanged();
+    return true;
+}
+
+bool Daemon::SetDeviceConnectionEnabled(const QString& path, const bool enabled) {
+    if (querySessionLockState() != SessionLockState::Unlocked) {
+        return false;
+    }
+    const QString mac = resolveMac(path);
+    if (!watchedMacs_.contains(mac)) {
+        return false;
+    }
+    machine_.setDeviceConnectionEnabled(DeviceId{mac.toStdString()}, enabled, now());
+    settings_.setValue(deviceSettingsKey(mac, "connectionEnabled"), enabled);
+    persistSettings("changing connection scanning");
+    publishState();
+    emit SettingsChanged();
+    return true;
+}
+
 bool Daemon::SetDeviceRssiThreshold(const QString& path, const int thresholdDbm) {
     if (querySessionLockState() != SessionLockState::Unlocked) {
         return false;
@@ -311,6 +405,25 @@ bool Daemon::SetDeviceRssiThreshold(const QString& path, const int thresholdDbm)
     machine_.setDeviceRssiThreshold(DeviceId{mac.toStdString()}, thresholdDbm, now());
     settings_.setValue(deviceSettingsKey(mac, "rssiThreshold"), thresholdDbm);
     persistSettings("changing an RSSI threshold");
+    publishState();
+    emit SettingsChanged();
+    return true;
+}
+
+bool Daemon::SetDeviceConnectionRssiThreshold(const QString& path, const int thresholdDbm) {
+    if (querySessionLockState() != SessionLockState::Unlocked) {
+        return false;
+    }
+    const QString mac = resolveMac(path);
+    if (!watchedMacs_.contains(mac)) {
+        return false;
+    }
+    if (thresholdDbm < -100 || thresholdDbm > 0) {
+        return false;
+    }
+    machine_.setDeviceConnectionRssiThreshold(DeviceId{mac.toStdString()}, thresholdDbm, now());
+    settings_.setValue(deviceSettingsKey(mac, "connectionRssiThreshold"), thresholdDbm);
+    persistSettings("changing a connection RSSI threshold");
     publishState();
     emit SettingsChanged();
     return true;
@@ -338,17 +451,43 @@ void Daemon::onDeviceObserved(const QString& path, const bool connected, const i
         return;
     }
     machine_.observe(DeviceId{path.toStdString()}, DeviceObservation{connected, hasRssi ? std::optional{rssiDbm} : std::nullopt}, now());
+    deviceSettingsUpdateTimer_.start();
+    if (hasRssi) {
+        rssiExpiryTimer_.start();
+    }
     publishState();
 }
 
 void Daemon::onSelectedDevicesChanged(const QStringList& macs) {
     const QSet<QString> selected{macs.cbegin(), macs.cend()};
+    bool repairedRssiThresholds = false;
     for (const QString& mac : selected - watchedMacs_) {
         watchedMacs_.insert(mac);
-        const int savedThreshold = settings_.value(deviceSettingsKey(mac, "rssiThreshold"), rssiThreshold_).toInt();
-        const int threshold = savedThreshold >= -100 && savedThreshold <= 0 ? savedThreshold : rssiThreshold_;
-        machine_.addDevice({DeviceId{mac.toStdString()}, threshold, rssiHysteresis_, rssiSamples_,
-                            settings_.value(deviceSettingsKey(mac, "enabled"), true).toBool()}, now());
+        const QString bleKey = deviceSettingsKey(mac, "rssiThreshold");
+        const QString connectionThresholdKey = deviceSettingsKey(mac, "connectionRssiThreshold");
+        const std::optional<int> savedBle = settings_.contains(bleKey) ? std::optional{settings_.value(bleKey).toInt()} : std::nullopt;
+        const std::optional<int> savedConnection = settings_.contains(connectionThresholdKey)
+            ? std::optional{settings_.value(connectionThresholdKey).toInt()} : std::nullopt;
+        const DeviceRssiThresholds thresholds = resolveDeviceRssiThresholds(savedBle, savedConnection, rssiThreshold_);
+        if (thresholds.repairBle) {
+            settings_.setValue(bleKey, thresholds.bleDbm);
+            repairedRssiThresholds = true;
+        }
+        if (savedConnection.has_value() && thresholds.migrateConnection) {
+            qCWarning(smartLockerLog) << "repairing out-of-range persisted connection RSSI threshold for" << mac << ":"
+                                      << *savedConnection;
+        }
+        if (thresholds.migrateConnection) {
+            settings_.setValue(connectionThresholdKey, thresholds.connectionDbm);
+            repairedRssiThresholds = true;
+        }
+        machine_.addDevice({DeviceId{mac.toStdString()}, thresholds.bleDbm, rssiHysteresis_, rssiSamples_,
+                            settings_.value(deviceSettingsKey(mac, "enabled"), true).toBool(),
+                            settings_.value(deviceSettingsKey(mac, "bleEnabled"), true).toBool(),
+                            settings_.value(deviceSettingsKey(mac, "connectionEnabled"), true).toBool(), thresholds.connectionDbm}, now());
+    }
+    if (repairedRssiThresholds) {
+        persistSettings("migrating or repairing selected-device RSSI thresholds");
     }
     const QSet<QString> removed = watchedMacs_ - selected;
     for (const QString& mac : removed) {
