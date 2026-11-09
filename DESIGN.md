@@ -54,10 +54,11 @@ Long device names elide right; addresses elide middle. The layout reflows at nar
 - **Accessibility**: state is text; all controls have `Accessible.name`/`Accessible.description`.
 
 ### DevicePolicyRow
-- **Structure**: `PlasmaComponents3.Frame` card with a bold display name (or "Unknown device"), an elided MAC address, a Watch switch, a `PlasmaComponents3.Slider` from -100 to 0 dBm with a right-aligned value, and a short "Lower is stricter." caption.
-- **States**: watched/unwatched (the threshold block dims), daemon unavailable, long name/MAC.
-- **Motion**: none. A 300 ms timer coalesces slider movement; the daemon is called once the user settles.
-- **Sync**: `Component.onCompleted` and `onSettingsChanged` re-read the client's cached name/enabled/threshold; an in-progress drag or pending commit is not overwritten.
+- **Structure**: `PlasmaComponents3.Frame` card with a bold display name (or "Unknown device"), an elided MAC address, a Watch switch, independent BLE and connection scan switches, and separate BLE and connection RSSI threshold sliders from -100 to 0 dBm. Each track carries its source's live RSSI marker; slider handles remain their respective configured thresholds.
+- **Signal state**: show each source's latest fresh RSSI value next to its threshold; hide that source's marker and show "No recent signal" when no fresh sample is available. Markers use the slider highlight color, and adjacent readings use semantic text color for threshold status.
+- **States**: watched/unwatched and BLE-on/BLE-off (the threshold block dims), daemon unavailable, long name/MAC.
+- **Motion**: the marker for the matching source retargets over 150 ms with OutCubic easing on fresh RSSI updates; neither threshold handle moves. A 300 ms timer coalesces each threshold slider independently.
+- **Sync**: `Component.onCompleted` and `onSettingsChanged` re-read the client's cached name, scan switches, Watch setting, both thresholds, and source-specific RSSI values; an in-progress drag or pending commit is not overwritten.
 
 ### EmptyState
 - **Structure**: `PlasmaExtras.PlaceholderMessage` with the Bluetooth icon, "No paired or trusted Bluetooth devices", and an explanation of the auto-watch behavior.
@@ -68,7 +69,7 @@ Long device names elide right; addresses elide middle. The layout reflows at nar
 
 ## 6. Motion & Interaction
 
-No custom motion. Native Plasma focus, pressed, hover, and disabled states remain enabled. Policy edits call the daemon immediately; the slider is the only coalesced input, and its delay exists to avoid a D-Bus call per pixel, not to pretend persistence.
+Native Plasma focus, pressed, hover, and disabled states remain enabled. Policy edits call the daemon immediately; threshold slider commits are coalesced to avoid a D-Bus call per pixel. The independent RSSI marker retargets over 150 ms with an OutCubic easing as fresh samples arrive; it never moves the threshold handle. Presence is accepted from either enabled source. Disabling connection scanning makes the BLE threshold the active range boundary.
 
 ## 7. Depth & Surface
 

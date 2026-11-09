@@ -11,7 +11,8 @@ Lock-only Bluetooth presence daemon for KDE Plasma 6 and DankMaterialShell (DMS)
 - A failed lock command is retried after the away duration; a background verifier re-arms locking if the session never actually locks. An unverifiable session counts as "not proven locked" rather than as success, so a lock that silently failed cannot leave the screen unlocked forever.
 - Mutating D-Bus calls (`SetEnabled`, `Snooze`, device toggles, RSSI thresholds) are rejected while the session is locking or locked.
 - Global and per-device disable state is persisted with `QSettings`.
-- RSSI thresholds support averaging and hysteresis; stale RSSI never keeps a disconnected device "present".
+- BLE advertisement RSSI thresholds support averaging and hysteresis; fresh disconnected RSSI updates count as BLE presence for up to 10 seconds, while stale RSSI from BlueZ enumeration never keeps a device "present".
+- Per-device BLE advertisement and active-connection presence can be enabled independently from either widget; each source has its own persisted RSSI threshold slider and matching live-signal marker.
 - `InterfacesRemoved` from BlueZ is treated as device absence.
 
 ## Configure a device
