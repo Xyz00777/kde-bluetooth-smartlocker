@@ -11,6 +11,7 @@
 namespace smartlocker {
 
 using TimePoint = std::chrono::steady_clock::time_point;
+inline constexpr std::chrono::seconds kRssiFreshness{10};
 
 enum class Action {
     None,
@@ -38,12 +39,20 @@ struct DeviceObservation {
     std::optional<int> rssiDbm;
 };
 
+struct DeviceSignal {
+    int rssiDbm;
+    bool connected;
+};
+
 struct DeviceConfiguration {
     DeviceId id;
     std::optional<int> rssiThresholdDbm;
     int rssiHysteresisDb;
     std::size_t rssiSampleCount;
     bool enabled{true};
+    bool bleEnabled{true};
+    bool connectionEnabled{true};
+    std::optional<int> connectionRssiThresholdDbm{};
 };
 
 struct StateMachineConfiguration {
@@ -69,6 +78,9 @@ public:
     void setEnabled(bool enabled, TimePoint now);
     void setDeviceEnabled(const DeviceId& id, bool enabled, TimePoint now);
     void setDeviceRssiThreshold(const DeviceId& id, int thresholdDbm, TimePoint now);
+    void setDeviceConnectionRssiThreshold(const DeviceId& id, int thresholdDbm, TimePoint now);
+    void setDeviceBleEnabled(const DeviceId& id, bool enabled, TimePoint now);
+    void setDeviceConnectionEnabled(const DeviceId& id, bool enabled, TimePoint now);
     void addDevice(DeviceConfiguration configuration, TimePoint now);
     void removeDevice(const DeviceId& id, TimePoint now);
     void snooze(std::chrono::seconds duration, TimePoint now);
@@ -83,18 +95,28 @@ public:
     [[nodiscard]] std::size_t minimumPresentDevices() const;
     [[nodiscard]] bool deviceEnabled(const DeviceId& id) const;
     [[nodiscard]] int deviceRssiThreshold(const DeviceId& id) const;
+    [[nodiscard]] int deviceConnectionRssiThreshold(const DeviceId& id) const;
+    [[nodiscard]] std::optional<DeviceSignal> deviceLastSignal(const DeviceId& id, TimePoint now) const;
+    [[nodiscard]] std::optional<int> deviceLastBleRssiDbm(const DeviceId& id, TimePoint now) const;
+    [[nodiscard]] std::optional<int> deviceLastConnectionRssiDbm(const DeviceId& id, TimePoint now) const;
 
 private:
     struct DeviceRuntime {
         bool observed{false};
         bool connected{false};
         std::optional<bool> rssiPresent;
+        std::optional<TimePoint> rssiObservedAt;
+        bool rssiObservedConnected{false};
         std::vector<int> rssiSamples;
+        std::optional<int> lastBleRssiDbm;
+        std::optional<TimePoint> lastBleRssiObservedAt;
+        std::optional<int> lastConnectionRssiDbm;
+        std::optional<TimePoint> lastConnectionRssiObservedAt;
     };
 
-    [[nodiscard]] bool isPresent(const DeviceConfiguration& configuration, const DeviceRuntime& runtime) const;
+    [[nodiscard]] bool isPresent(const DeviceConfiguration& configuration, const DeviceRuntime& runtime, TimePoint now) const;
     void updateRssiPresence(const DeviceConfiguration& configuration, DeviceRuntime& runtime);
-    [[nodiscard]] std::size_t presentDeviceCount() const;
+    [[nodiscard]] std::size_t presentDeviceCount(TimePoint now) const;
     void updateState(TimePoint now);
 
     StateMachineConfiguration configuration_;

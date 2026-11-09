@@ -1,5 +1,6 @@
 #include "smartlocker/state_machine.hpp"
 #include "smartlocker/device_spec.hpp"
+#include "smartlocker/device_rssi_thresholds.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -307,7 +308,7 @@ void testChangingThresholdReevaluatesObservedRssi() {
     machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -50}, at(0));
 
     // When: its threshold becomes stricter than the observed RSSI.
-    machine.setDeviceRssiThreshold(DeviceId{"phone"}, -40, at(1));
+    machine.setDeviceConnectionRssiThreshold(DeviceId{"phone"}, -40, at(1));
 
     // Then: the normal away duration applies from the policy change.
     require(machine.advanceTo(at(10)) == Action::None);
@@ -398,6 +399,160 @@ void testUnconfiguredRssiThresholdUsesDefaultAndFallsBackToConnected() {
     machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = std::nullopt}, at(1));
     require(machine.advanceTo(at(10)) == Action::None);
     require(machine.advanceTo(at(11)) == Action::Lock);
+}
+
+void testConnectionAndBleScanningAreIndependentPresenceSources() {
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.setDeviceConnectionEnabled(DeviceId{"phone"}, false, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = -60}, at(0));
+    require(machine.state() == MachineState::Monitoring);
+
+    machine.setDeviceBleEnabled(DeviceId{"phone"}, false, at(1));
+    require(machine.state() == MachineState::AwaitingAbsence);
+    require(!machine.deviceLastSignal(DeviceId{"phone"}, at(1)).has_value());
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = -60}, at(2));
+
+    machine.setDeviceBleEnabled(DeviceId{"phone"}, true, at(3));
+    require(machine.state() == MachineState::AwaitingAbsence);
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = -60}, at(4));
+    require(machine.state() == MachineState::Monitoring);
+
+    machine.setDeviceBleEnabled(DeviceId{"phone"}, false, at(5));
+    machine.setDeviceConnectionEnabled(DeviceId{"phone"}, true, at(6));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -60}, at(6));
+    require(machine.state() == MachineState::Monitoring);
+}
+
+void testBlePresenceExpiresWithoutFreshAdvertisementRssi() {
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.setDeviceConnectionEnabled(DeviceId{"phone"}, false, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = -60}, at(0));
+    require(machine.state() == MachineState::Monitoring);
+    const auto signal = machine.deviceLastSignal(DeviceId{"phone"}, at(0));
+    require(signal.has_value() && signal->rssiDbm == -60 && !signal->connected);
+
+    require(machine.advanceTo(at(10)) == Action::None);
+    require(machine.state() == MachineState::AwaitingAbsence);
+    require(!machine.deviceLastSignal(DeviceId{"phone"}, at(10)).has_value());
+    require(machine.advanceTo(at(19)) == Action::None);
+    require(machine.advanceTo(at(20)) == Action::Lock);
+}
+
+void testConnectionAndBleSignalThresholdsAreIndependent() {
+    StateMachine machine{StateMachineConfiguration{
+        .awayDuration = 10s,
+        .snoozeDurationCap = 30s,
+        .postResumeGrace = 30s,
+        .minimumPresentDevices = 1,
+        .devices = {DeviceConfiguration{
+            .id = DeviceId{"phone"},
+            .rssiThresholdDbm = -80,
+            .rssiHysteresisDb = 0,
+            .rssiSampleCount = 1,
+            .connectionRssiThresholdDbm = -60,
+        }},
+    }};
+    machine.setBluetoothAvailable(true, at(0));
+    require(machine.deviceConnectionRssiThreshold(DeviceId{"phone"}) == -60);
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -70}, at(0));
+    require(machine.state() == MachineState::AwaitingAbsence);
+    machine.setDeviceConnectionRssiThreshold(DeviceId{"phone"}, -75, at(1));
+    require(machine.state() == MachineState::Monitoring);
+    const auto connectedSignal = machine.deviceLastSignal(DeviceId{"phone"}, at(1));
+    require(connectedSignal.has_value() && connectedSignal->rssiDbm == -70 && connectedSignal->connected);
+    require(machine.deviceLastConnectionRssiDbm(DeviceId{"phone"}, at(1)) == -70);
+    require(!machine.deviceLastBleRssiDbm(DeviceId{"phone"}, at(1)).has_value());
+    machine.setDeviceRssiThreshold(DeviceId{"phone"}, -30, at(1));
+    require(machine.state() == MachineState::Monitoring);
+    machine.setDeviceRssiThreshold(DeviceId{"phone"}, -80, at(1));
+
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = -70}, at(2));
+    require(machine.state() == MachineState::Monitoring);
+    const auto signal = machine.deviceLastSignal(DeviceId{"phone"}, at(2));
+    require(signal.has_value() && signal->rssiDbm == -70 && !signal->connected);
+    require(machine.deviceConnectionRssiThreshold(DeviceId{"phone"}) == -75);
+    require(machine.deviceLastBleRssiDbm(DeviceId{"phone"}, at(2)) == -70);
+    require(machine.deviceLastConnectionRssiDbm(DeviceId{"phone"}, at(2)) == -70);
+    require(!machine.deviceLastConnectionRssiDbm(DeviceId{"phone"}, at(11)).has_value());
+}
+
+void testRssiHysteresisDoesNotCarryBetweenBleAndConnectionSources() {
+    StateMachine machine{StateMachineConfiguration{
+        .awayDuration = 10s,
+        .snoozeDurationCap = 30s,
+        .postResumeGrace = 30s,
+        .minimumPresentDevices = 1,
+        .devices = {DeviceConfiguration{
+            .id = DeviceId{"phone"},
+            .rssiThresholdDbm = -60,
+            .rssiHysteresisDb = 5,
+            .rssiSampleCount = 1,
+            .connectionRssiThresholdDbm = -40,
+        }},
+    }};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -35}, at(0));
+    require(machine.state() == MachineState::Monitoring);
+
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = -64}, at(1));
+    require(machine.state() == MachineState::AwaitingAbsence);
+}
+
+void testBleAndConnectionSignalReadingsAreRetainedAndExpireIndependently() {
+    StateMachine machine{configuredForOneDevice()};
+    machine.setBluetoothAvailable(true, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = false, .rssiDbm = -55}, at(0));
+    machine.observe(DeviceId{"phone"}, DeviceObservation{.connected = true, .rssiDbm = -82}, at(2));
+
+    require(machine.deviceLastBleRssiDbm(DeviceId{"phone"}, at(2)) == -55);
+    require(machine.deviceLastConnectionRssiDbm(DeviceId{"phone"}, at(2)) == -82);
+    require(machine.deviceLastBleRssiDbm(DeviceId{"phone"}, at(9)) == -55);
+    require(!machine.deviceLastBleRssiDbm(DeviceId{"phone"}, at(10)).has_value());
+    require(machine.deviceLastConnectionRssiDbm(DeviceId{"phone"}, at(11)) == -82);
+    require(!machine.deviceLastConnectionRssiDbm(DeviceId{"phone"}, at(12)).has_value());
+}
+
+void testDynamicallyAddedDeviceInheritsLegacyRssiThresholdForConnection() {
+    StateMachine machine{StateMachineConfiguration{
+        .awayDuration = 10s,
+        .snoozeDurationCap = 30s,
+        .postResumeGrace = 30s,
+        .minimumPresentDevices = 1,
+        .devices = {},
+    }};
+    machine.addDevice(DeviceConfiguration{
+        .id = DeviceId{"phone"},
+        .rssiThresholdDbm = -47,
+        .rssiHysteresisDb = 5,
+        .rssiSampleCount = 3,
+    }, at(0));
+
+    require(machine.deviceRssiThreshold(DeviceId{"phone"}) == -47);
+    require(machine.deviceConnectionRssiThreshold(DeviceId{"phone"}) == -47);
+}
+
+void testRssiThresholdMigrationPreservesLegacyAndRepairsOutOfRangeValues() {
+    const auto inherited = smartlocker::resolveDeviceRssiThresholds(-55, std::nullopt, -70);
+    require(inherited.bleDbm == -55);
+    require(inherited.connectionDbm == -55);
+    require(!inherited.repairBle && inherited.migrateConnection);
+
+    const auto independent = smartlocker::resolveDeviceRssiThresholds(-55, -65, -70);
+    require(independent.bleDbm == -55);
+    require(independent.connectionDbm == -65);
+    require(!independent.repairBle && !independent.migrateConnection);
+
+    const auto invalidLegacy = smartlocker::resolveDeviceRssiThresholds(12, std::nullopt, -70);
+    require(invalidLegacy.bleDbm == -70);
+    require(invalidLegacy.connectionDbm == -70);
+    require(invalidLegacy.repairBle && invalidLegacy.migrateConnection);
+
+    const auto invalidConnection = smartlocker::resolveDeviceRssiThresholds(-50, -120, -70);
+    require(invalidConnection.bleDbm == -50);
+    require(invalidConnection.connectionDbm == -50);
+    require(!invalidConnection.repairBle && invalidConnection.migrateConnection);
 }
 
 void testLockedStateLatchesAndDoesNotRelock() {
@@ -545,6 +700,13 @@ int main() {
     testDynamicDeviceRemovalReevaluatesPresence();
     testDynamicDeviceRemovalClampsMinimumPresentDevices();
     testUnconfiguredRssiThresholdUsesDefaultAndFallsBackToConnected();
+    testConnectionAndBleScanningAreIndependentPresenceSources();
+    testBlePresenceExpiresWithoutFreshAdvertisementRssi();
+    testConnectionAndBleSignalThresholdsAreIndependent();
+    testRssiHysteresisDoesNotCarryBetweenBleAndConnectionSources();
+    testBleAndConnectionSignalReadingsAreRetainedAndExpireIndependently();
+    testDynamicallyAddedDeviceInheritsLegacyRssiThresholdForConnection();
+    testRssiThresholdMigrationPreservesLegacyAndRepairsOutOfRangeValues();
     testLockedStateLatchesAndDoesNotRelock();
     testLockedStateClearsWhenDeviceReturns();
     testLockFailureRetriesAfterAwayDuration();
