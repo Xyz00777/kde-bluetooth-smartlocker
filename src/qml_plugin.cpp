@@ -91,10 +91,28 @@ public:
         watchMutation(asyncDaemonCall(QStringLiteral("SetDeviceEnabled"), path, enabled), [this, path] { enabledCache_.remove(path); });
     }
 
+    Q_INVOKABLE void setDeviceBleEnabled(const QString& path, const bool enabled) {
+        bleEnabledCache_.insert(path, enabled);
+        watchMutation(asyncDaemonCall(QStringLiteral("SetDeviceBleEnabled"), path, enabled),
+                      [this, path] { bleEnabledCache_.remove(path); });
+    }
+
+    Q_INVOKABLE void setDeviceConnectionEnabled(const QString& path, const bool enabled) {
+        connectionEnabledCache_.insert(path, enabled);
+        watchMutation(asyncDaemonCall(QStringLiteral("SetDeviceConnectionEnabled"), path, enabled),
+                      [this, path] { connectionEnabledCache_.remove(path); });
+    }
+
     Q_INVOKABLE void setDeviceRssiThreshold(const QString& path, const int thresholdDbm) {
         thresholdCache_.insert(path, thresholdDbm);
         watchMutation(asyncDaemonCall(QStringLiteral("SetDeviceRssiThreshold"), path, thresholdDbm),
                       [this, path] { thresholdCache_.remove(path); });
+    }
+
+    Q_INVOKABLE void setDeviceConnectionRssiThreshold(const QString& path, const int thresholdDbm) {
+        connectionThresholdCache_.insert(path, thresholdDbm);
+        watchMutation(asyncDaemonCall(QStringLiteral("SetDeviceConnectionRssiThreshold"), path, thresholdDbm),
+                      [this, path] { connectionThresholdCache_.remove(path); });
     }
 
     // These read only the primed caches: a synchronous D-Bus fallback here would block the
@@ -104,7 +122,23 @@ public:
     // own defaults for an unset value.
     Q_INVOKABLE bool deviceEnabled(const QString& path) { return enabledCache_.value(path, true); }
 
+    Q_INVOKABLE bool deviceBleEnabled(const QString& path) { return bleEnabledCache_.value(path, true); }
+
+    Q_INVOKABLE bool deviceConnectionEnabled(const QString& path) { return connectionEnabledCache_.value(path, true); }
+
     Q_INVOKABLE int deviceRssiThreshold(const QString& path) { return thresholdCache_.value(path, kDefaultRssiThresholdDbm); }
+
+    Q_INVOKABLE int deviceConnectionRssiThreshold(const QString& path) {
+        return connectionThresholdCache_.value(path, kDefaultRssiThresholdDbm);
+    }
+
+    Q_INVOKABLE bool deviceBleRssiAvailable(const QString& path) { return bleRssiAvailableCache_.value(path, false); }
+
+    Q_INVOKABLE int deviceBleRssiDbm(const QString& path) { return bleRssiDbmCache_.value(path, 0); }
+
+    Q_INVOKABLE bool deviceConnectionRssiAvailable(const QString& path) { return connectionRssiAvailableCache_.value(path, false); }
+
+    Q_INVOKABLE int deviceConnectionRssiDbm(const QString& path) { return connectionRssiDbmCache_.value(path, 0); }
 
     Q_INVOKABLE QString deviceName(const QString& path) { return nameCache_.value(path); }
 
@@ -169,12 +203,26 @@ private:
             // Priming the per-device caches here keeps the QML getters off the
             // synchronous D-Bus path, which would otherwise block the UI thread.
             enabledCache_.clear();
+            bleEnabledCache_.clear();
+            connectionEnabledCache_.clear();
             thresholdCache_.clear();
+            connectionThresholdCache_.clear();
+            bleRssiAvailableCache_.clear();
+            bleRssiDbmCache_.clear();
+            connectionRssiAvailableCache_.clear();
+            connectionRssiDbmCache_.clear();
             nameCache_.clear();
             for (auto it = reply.value().cbegin(); it != reply.value().cend(); ++it) {
                 const QVariantMap entry = it.value().toMap();
                 enabledCache_.insert(it.key(), entry.value(QStringLiteral("enabled")).toBool());
+                bleEnabledCache_.insert(it.key(), entry.value(QStringLiteral("bleEnabled")).toBool());
+                connectionEnabledCache_.insert(it.key(), entry.value(QStringLiteral("connectionEnabled")).toBool());
                 thresholdCache_.insert(it.key(), entry.value(QStringLiteral("rssiThreshold")).toInt());
+                connectionThresholdCache_.insert(it.key(), entry.value(QStringLiteral("connectionRssiThreshold")).toInt());
+                bleRssiAvailableCache_.insert(it.key(), entry.value(QStringLiteral("bleRssiAvailable")).toBool());
+                bleRssiDbmCache_.insert(it.key(), entry.value(QStringLiteral("bleRssiDbm")).toInt());
+                connectionRssiAvailableCache_.insert(it.key(), entry.value(QStringLiteral("connectionRssiAvailable")).toBool());
+                connectionRssiDbmCache_.insert(it.key(), entry.value(QStringLiteral("connectionRssiDbm")).toInt());
                 const QString name = entry.value(QStringLiteral("name")).toString();
                 if (!name.isEmpty()) {
                     nameCache_.insert(it.key(), name);
@@ -196,7 +244,14 @@ private:
 
     void clearCaches() {
         enabledCache_.clear();
+        bleEnabledCache_.clear();
+        connectionEnabledCache_.clear();
         thresholdCache_.clear();
+        connectionThresholdCache_.clear();
+        bleRssiAvailableCache_.clear();
+        bleRssiDbmCache_.clear();
+        connectionRssiAvailableCache_.clear();
+        connectionRssiDbmCache_.clear();
         nameCache_.clear();
     }
 
@@ -241,7 +296,14 @@ private:
     QString lastError_{};
     quint64 refreshGeneration_{0};
     QMap<QString, bool> enabledCache_{};
+    QMap<QString, bool> bleEnabledCache_{};
+    QMap<QString, bool> connectionEnabledCache_{};
     QMap<QString, int> thresholdCache_{};
+    QMap<QString, int> connectionThresholdCache_{};
+    QMap<QString, bool> bleRssiAvailableCache_{};
+    QMap<QString, int> bleRssiDbmCache_{};
+    QMap<QString, bool> connectionRssiAvailableCache_{};
+    QMap<QString, int> connectionRssiDbmCache_{};
     QMap<QString, QString> nameCache_{};
 };
 
