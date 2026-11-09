@@ -52,6 +52,20 @@ bool waitForObservation(QSignalSpy& spy, const QString& mac, const bool connecte
     return false;
 }
 
+bool waitForRssiObservation(QSignalSpy& spy, const QString& mac, const bool connected, const int rssiDbm) {
+    for (int i = 0; i < 400; ++i) {
+        for (const QList<QVariant>& call : spy) {
+            if (call.at(0).toString() == mac && call.at(1).toBool() == connected && call.at(3).toBool()
+                && call.at(2).toInt() == rssiDbm) {
+                return true;
+            }
+        }
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        QThread::msleep(5);
+    }
+    return false;
+}
+
 const QString kMac = QStringLiteral("AA:BB:CC:DD:EE:FF");
 const QString kDevicePath = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
 
@@ -373,16 +387,22 @@ int main(int argc, char* argv[]) {
     }
     check(sawRssi, "PropertiesChanged delivers the RSSI reading for a connected path");
 
-    // Once disconnected, a later RSSI update must not be reported as usable.
+    // A fresh RSSI property update while disconnected is an advertisement reading, not the
+    // stale value BlueZ retained across the disconnect.
     observed.clear();
     emitChanged(fakeProperties, {{QStringLiteral("Connected"), false}});
     check(waitForObservation(observed, kMac, false), "PropertiesChanged applies disconnect");
     observed.clear();
     emitChanged(fakeProperties, {{QStringLiteral("RSSI"), -42}});
-    spinFor(250);
+    check(waitForObservation(observed, kMac, false), "fresh disconnected BLE RSSI is reported");
+    bool sawBleRssi = false;
     for (const QList<QVariant>& call : observed) {
-        check(!call.at(3).toBool(), "RSSI is not reported as usable while the path is disconnected");
+        if (call.at(3).toBool() && call.at(2).toInt() == -42) sawBleRssi = true;
     }
+    check(sawBleRssi, "fresh disconnected BLE RSSI value is available to the policy");
+    observed.clear();
+    spinFor(250);
+    check(observed.count() == 0, "cached disconnected RSSI is not reused by enumeration");
 
     // InterfacesRemoved reports absence and prunes the cached name. The signal and the
     // object store must agree, exactly as BlueZ behaves, otherwise the re-enumeration that
@@ -447,7 +467,7 @@ int main(int argc, char* argv[]) {
     check(waitForObservation(observed, kMac, true), "reconnect observed");
     observed.clear();
     publish(fake, singleDevice(deviceProperties(true, -55, QStringLiteral("Cycle"))));
-    check(waitForObservation(observed, kMac, true), "restored RSSI is re-reported after a reconnect");
+    check(waitForRssiObservation(observed, kMac, true, -55), "restored RSSI is re-reported after a reconnect");
     bool rssiRestored = false;
     for (const QList<QVariant>& call : observed) {
         if (call.at(3).toBool()) {

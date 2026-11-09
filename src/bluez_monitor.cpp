@@ -225,11 +225,11 @@ void BluezMonitor::enumerateDevices() {
         // snapshot as a fresh sample each time, collapsing the averaging window.
         const bool isNew = !connectionStates_.contains(mac);
         const bool presenceChanged = isNew || connectionStates_.value(mac) != connected;
-        const bool rssiChanged = isNew || lastRssi_.contains(mac) != hasRssi || (hasRssi && lastRssi_.value(mac) != rssiDbm);
+        const bool rssiChanged = connected && (isNew || lastRssi_.contains(mac) != hasRssi || (hasRssi && lastRssi_.value(mac) != rssiDbm));
         connectionStates_.insert(mac, connected);
-        if (hasRssi) {
+        if (connected && hasRssi) {
             lastRssi_.insert(mac, rssiDbm);
-        } else {
+        } else if (connected) {
             // A device that stops reporting RSSI must not leave a cached reading behind,
             // both for change detection and because stale RSSI must never imply presence.
             lastRssi_.remove(mac);
@@ -298,6 +298,7 @@ void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantM
         pathConnectionStates_.insert(path, connected->toBool());
         if (connected->toBool()) {
             everConnected_.insert(mac, true);
+            lastRssi_.remove(mac);
         }
     }
     const bool isConnected = macConnected(mac);
@@ -305,7 +306,7 @@ void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantM
     // The reporting path's own state must authorise the reading: a disconnected duplicate
     // must never refresh the MAC-level RSSI while another path keeps the MAC present.
     const bool pathConnected = pathConnectionStates_.value(path, false);
-    if (rssi != changed.cend() && pathConnected && !(everConnected_.value(mac, false) && !isConnected)) {
+    if (rssi != changed.cend() && (pathConnected || !isConnected)) {
         lastRssi_.insert(mac, rssi->toInt());
         emit deviceObserved(mac, isConnected, rssi->toInt(), true);
     } else {
