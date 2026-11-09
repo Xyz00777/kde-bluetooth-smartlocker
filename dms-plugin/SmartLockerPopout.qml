@@ -352,7 +352,7 @@ PopoutComponent {
 
             StyledText {
                 width: parent.width
-                text: "Daemon settings (away delay, minimum present devices, RSSI policy) are configured outside the shell."
+                text: "Away delay and minimum present devices are configured on the daemon; per-device scan modes and both signal thresholds are controlled above."
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceVariantText
                 horizontalAlignment: Text.AlignHCenter

@@ -14,7 +14,7 @@ PluginComponent {
 
     SmartLockerBridge {
         id: bridge
-        refreshIntervalSec: Math.max(2, root.pluginData.refreshIntervalSec || 5)
+        refreshIntervalSec: Math.max(2, root.pluginData.refreshIntervalSec || 2)
     }
 
     readonly property int deviceCount: Array.isArray(bridge.devices) ? bridge.devices.length : 0

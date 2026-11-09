@@ -33,7 +33,7 @@ PluginSettings {
     ToggleSetting {
         settingKey: "showThresholds"
         label: "Show RSSI threshold controls"
-        description: "Show the per-device signal threshold slider in the popout."
+        description: "Show the per-device BLE range slider and live RSSI marker in the popout."
         defaultValue: true
     }
 
@@ -41,7 +41,7 @@ PluginSettings {
         settingKey: "refreshIntervalSec"
         label: "Refresh interval"
         description: "How often the widget polls the daemon for state changes."
-        defaultValue: 5
+        defaultValue: 2
         minimum: 2
         maximum: 30
         unit: "s"
@@ -49,7 +49,7 @@ PluginSettings {
 
     StyledText {
         width: parent.width
-        text: "This widget is lock-only: Bluetooth presence never unlocks the session. Away delay, minimum present devices and RSSI policy are configured on the daemon (NixOS: services.kdeBluetoothSmartlocker)."
+        text: "This widget is lock-only: Bluetooth presence never unlocks the session. Away delay and minimum present devices are configured on the daemon (NixOS: services.kdeBluetoothSmartlocker); each device's BLE range, connection strength, and scan modes are controlled in the popout."
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap
