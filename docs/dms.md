@@ -62,6 +62,8 @@ The widget mirrors the daemon state:
 
 Presence never unlocks the session. Locking is one-way, and a failed lock command is retried until the session actually locks.
 
+Each watched device has independent **BLE** and **Connection** switches and RSSI thresholds. BLE advertisements use the BLE range slider; a connected device's signal uses the separate connection strength slider. Each slider retains that source's latest RSSI marker, while its handle remains the configured threshold. A device counts as present when either enabled source meets its own threshold. Advertisement RSSI older than 10 seconds expires.
+
 ## Settings
 
 The plugin exposes a small set of widget settings in DMS:
@@ -69,10 +71,10 @@ The plugin exposes a small set of widget settings in DMS:
 | Setting | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `showLabel` | bool | `true` | Show the short state label next to the Bluetooth icon in the bar. |
-| `showThresholds` | bool | `true` | Show the per-device RSSI threshold slider in the popout. |
-| `refreshIntervalSec` | int | `5` | How often the widget polls the daemon over `busctl`, in seconds (2–30). |
+| `showThresholds` | bool | `true` | Show the per-device BLE range and connection strength sliders in the popout. |
+| `refreshIntervalSec` | int | `2` | How often the widget polls the daemon over `busctl`, in seconds (2–30), including the latest RSSI marker. |
 
-These are widget preferences only. The lock policy itself (devices, away duration, RSSI threshold, and so on) is configured on the daemon, for example through the NixOS module or the daemon CLI.
+These are widget preferences only. Per-device BLE/connection switches and both RSSI thresholds are saved by the daemon and can be changed in each device row. The watched devices, away duration, and default RSSI thresholds remain daemon settings, for example through the NixOS module or the daemon CLI.
 
 ## Lock-only safety
 

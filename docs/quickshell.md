@@ -48,8 +48,18 @@ SmartLockerClient {
 // - smartLocker.snooze(seconds)
 // - smartLocker.deviceEnabled(address)
 // - smartLocker.setDeviceEnabled(address, bool)
+// - smartLocker.deviceBleEnabled(address)
+// - smartLocker.setDeviceBleEnabled(address, bool)
+// - smartLocker.deviceConnectionEnabled(address)
+// - smartLocker.setDeviceConnectionEnabled(address, bool)
 // - smartLocker.deviceRssiThreshold(address)
 // - smartLocker.setDeviceRssiThreshold(address, dbm)
+// - smartLocker.deviceConnectionRssiThreshold(address)
+// - smartLocker.setDeviceConnectionRssiThreshold(address, dbm)
+// - smartLocker.deviceBleRssiAvailable(address)
+// - smartLocker.deviceBleRssiDbm(address)
+// - smartLocker.deviceConnectionRssiAvailable(address)
+// - smartLocker.deviceConnectionRssiDbm(address)
 // - smartLocker.deviceName(address)
 // - smartLocker.refresh()
 // - smartLocker.refreshDevices()
@@ -58,9 +68,9 @@ SmartLockerClient {
 
 ## Notes on device getters
 
-`deviceEnabled`, `deviceRssiThreshold` and `deviceName` read an in-memory cache and never
+`deviceEnabled`, `deviceBleEnabled`, `deviceConnectionEnabled`, both RSSI threshold getters, the BLE and connection RSSI availability/value getters, and `deviceName` read an in-memory cache and never
 perform blocking D-Bus calls, so they are safe to call from a property binding. The cache is
 filled asynchronously by `refresh()`, which also emits `settingsChanged`; re-read the getters
 from a handler on `settingsChanged` if you need to react to daemon-side changes such as live
 device-name updates. Before the first reply arrives, the getters return the daemon's defaults
-(`true`, `-70`, and an empty name) rather than blocking.
+(`true`, `true`, `true`, `-70`, `-70`, no fresh BLE or connection RSSI, and an empty name) rather than blocking.
