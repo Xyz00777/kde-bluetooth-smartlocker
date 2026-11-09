@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import qs.Common
+import qs.DankCommon.Common
 import qs.Widgets
 
 StyledRect {
@@ -15,8 +16,16 @@ StyledRect {
     property bool deviceChecked: false
     property bool devicePending: false
     property bool deviceDesired: false
+    property bool bleEnabled: true
+    property bool connectionEnabled: true
+    property bool bleSignalAvailable: false
+    property int bleSignalDbm: 0
+    property bool connectionSignalAvailable: false
+    property int connectionSignalDbm: 0
     property int thresholdValue: -70
     property int lastCommittedThreshold: -70
+    property int connectionThresholdValue: -70
+    property int lastCommittedConnectionThreshold: -70
     property bool ready: false
 
     property string displayName: "Unknown device"
@@ -43,7 +52,8 @@ StyledRect {
     }
 
     function syncThreshold() {
-        if (!root.ready || thresholdSlider.isDragging || commitTimer.running)
+        if (!root.ready || thresholdSlider.isDragging || connectionThresholdSlider.isDragging
+                || commitTimer.running || connectionCommitTimer.running)
             return;
         const value = root.bridge.deviceRssiThreshold(root.address);
         root.thresholdValue = value;
@@ -52,6 +62,17 @@ StyledRect {
         // daemon-side changes explicitly so the slider stays truthful.
         if (thresholdSlider.value !== value)
             thresholdSlider.value = value;
+
+        const connectionValue = root.bridge.deviceConnectionRssiThreshold(root.address);
+        root.connectionThresholdValue = connectionValue;
+        root.lastCommittedConnectionThreshold = connectionValue;
+        if (connectionThresholdSlider.value !== connectionValue)
+            connectionThresholdSlider.value = connectionValue;
+    }
+
+    function syncScanModes() {
+        root.bleEnabled = root.bridge.deviceBleEnabled(root.address);
+        root.connectionEnabled = root.bridge.deviceConnectionEnabled(root.address);
     }
 
     function syncFromBridge() {
@@ -59,6 +80,11 @@ StyledRect {
             return;
         root.displayName = root.bridge.deviceName(root.address) || "Unknown device";
         root.syncChecked();
+        root.syncScanModes();
+        root.bleSignalAvailable = root.bridge.deviceBleRssiAvailable(root.address);
+        root.bleSignalDbm = root.bridge.deviceBleRssiDbm(root.address);
+        root.connectionSignalAvailable = root.bridge.deviceConnectionRssiAvailable(root.address);
+        root.connectionSignalDbm = root.bridge.deviceConnectionRssiDbm(root.address);
         root.syncThreshold();
     }
 
@@ -67,6 +93,13 @@ StyledRect {
             return;
         root.lastCommittedThreshold = value;
         root.bridge.setDeviceRssiThreshold(root.address, value);
+    }
+
+    function commitConnectionThreshold(value) {
+        if (value === root.lastCommittedConnectionThreshold)
+            return;
+        root.lastCommittedConnectionThreshold = value;
+        root.bridge.setDeviceConnectionRssiThreshold(root.address, value);
     }
 
     Component.onCompleted: {
@@ -97,6 +130,13 @@ StyledRect {
         interval: 400
         repeat: false
         onTriggered: root.commitThreshold(root.thresholdValue)
+    }
+
+    Timer {
+        id: connectionCommitTimer
+        interval: 400
+        repeat: false
+        onTriggered: root.commitConnectionThreshold(root.connectionThresholdValue)
     }
 
     Timer {
@@ -190,51 +230,217 @@ StyledRect {
         Column {
             width: parent.width
             spacing: Theme.spacingXXS
-            visible: root.showThreshold && root.deviceChecked
+            visible: root.deviceChecked
 
-            RowLayout {
+            Column {
                 width: parent.width
-                spacing: Theme.spacingS
+                spacing: Theme.spacingXXS
 
-                StyledText {
-                    text: "Signal threshold"
-                    font.pixelSize: Theme.fontSizeSmall
-                    color: Theme.surfaceVariantText
+                DankToggle {
+                    width: parent.width
+                    text: "BLE advertisements"
+                    description: "Use signal strength to detect this device"
+                    checked: root.bleEnabled
+                    enabled: root.bridge.available
+                    onToggled: isChecked => {
+                        root.bleEnabled = isChecked;
+                        root.bridge.setDeviceBleEnabled(root.address, isChecked);
+                    }
+                    Accessible.name: "BLE scanning for " + root.displayName
                 }
 
-                Item {
-                    Layout.fillWidth: true
-                }
-
-                StyledText {
-                    text: root.thresholdValue + " dBm"
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.weight: Font.Medium
-                    color: Theme.primary
+                DankToggle {
+                    width: parent.width
+                    text: "Bluetooth connection"
+                    description: "Count an active connection as present"
+                    checked: root.connectionEnabled
+                    enabled: root.bridge.available
+                    onToggled: isChecked => {
+                        root.connectionEnabled = isChecked;
+                        root.bridge.setDeviceConnectionEnabled(root.address, isChecked);
+                    }
+                    Accessible.name: "Connection scanning for " + root.displayName
                 }
             }
 
-            DankSlider {
-                id: thresholdSlider
+            Column {
                 width: parent.width
-                minimum: -100
-                maximum: 0
-                step: 1
-                unit: " dBm"
-                value: root.thresholdValue
-                enabled: root.bridge.available && root.deviceChecked
-                wheelEnabled: false
-                onSliderValueChanged: newValue => {
-                    root.thresholdValue = newValue;
-                    commitTimer.restart();
+                spacing: Theme.spacingXXS
+                visible: root.showThreshold
+                opacity: root.bleEnabled ? 1 : 0.6
+
+                RowLayout {
+                    width: parent.width
+                    spacing: Theme.spacingS
+
+                    StyledText {
+                        text: "BLE range"
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceVariantText
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+
+                    StyledText {
+                        text: root.bleSignalAvailable ? "RSSI " + root.bleSignalDbm + " dBm" : "No recent BLE RSSI"
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: Font.Medium
+                        color: !root.bleSignalAvailable ? Theme.surfaceVariantText
+                            : root.bleSignalDbm >= root.thresholdValue ? Theme.success : Theme.warning
+                    }
+
+                    StyledText {
+                        text: "Target " + root.thresholdValue + " dBm"
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: Font.Medium
+                        color: Theme.primary
+                    }
                 }
-                onSliderDragFinished: finalValue => {
-                    root.thresholdValue = finalValue;
-                    commitTimer.stop();
-                    root.commitThreshold(finalValue);
+
+                Item {
+                    id: sliderTrack
+                    width: parent.width
+                    height: thresholdSlider.height
+
+                    DankSlider {
+                        id: thresholdSlider
+                        width: parent.width
+                        minimum: -100
+                        maximum: 0
+                        step: 1
+                        unit: " dBm"
+                        value: root.thresholdValue
+                        enabled: root.bridge.available && root.deviceChecked && root.bleEnabled
+                        wheelEnabled: false
+                        onSliderValueChanged: newValue => {
+                            root.thresholdValue = newValue;
+                            commitTimer.restart();
+                        }
+                        onSliderDragFinished: finalValue => {
+                            root.thresholdValue = finalValue;
+                            commitTimer.stop();
+                            root.commitThreshold(finalValue);
+                        }
+                        Accessible.name: "BLE signal threshold"
+                        Accessible.description: "BLE advertisements must meet this signal strength; connected-device signal uses the separate connection threshold"
+                    }
+
+                    Rectangle {
+                        id: signalMarker
+                        width: Theme.spacingXS
+                        height: Theme.spacingL
+                        y: (parent.height - height) / 2
+                        x: {
+                            const ratio = Math.max(0, Math.min(1, (root.bleSignalDbm - thresholdSlider.minimum)
+                                / (thresholdSlider.maximum - thresholdSlider.minimum)));
+                            return ratio * (parent.width - width - Theme.spacingXXS) + Theme.spacingXXS / 2;
+                        }
+                        radius: width / 2
+                        color: Theme.primary
+                        visible: root.bleSignalAvailable && root.bleEnabled
+                            && Math.abs(root.bleSignalDbm - root.thresholdValue) > 1
+                        Accessible.ignored: true
+
+                        Behavior on x {
+                            NumberAnimation {
+                                duration: Style.mediumDuration
+                                easing.type: Style.standardEasing
+                            }
+                        }
+                    }
                 }
-                Accessible.name: "Signal strength threshold"
-                Accessible.description: "Lower values require the device to be closer before it counts as present"
+            }
+
+            Column {
+                width: parent.width
+                spacing: Theme.spacingXXS
+                visible: root.showThreshold
+                opacity: root.connectionEnabled ? 1 : 0.6
+
+                RowLayout {
+                    width: parent.width
+                    spacing: Theme.spacingS
+
+                    StyledText {
+                        text: "Connection strength"
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceVariantText
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+
+                    StyledText {
+                        text: root.connectionSignalAvailable ? "RSSI " + root.connectionSignalDbm + " dBm" : "No recent connection RSSI"
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: Font.Medium
+                        color: !root.connectionSignalAvailable ? Theme.surfaceVariantText
+                            : root.connectionSignalDbm >= root.connectionThresholdValue ? Theme.success : Theme.warning
+                    }
+
+                    StyledText {
+                        text: "Target " + root.connectionThresholdValue + " dBm"
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: Font.Medium
+                        color: Theme.primary
+                    }
+                }
+
+                Item {
+                    id: connectionSliderTrack
+                    width: parent.width
+                    height: connectionThresholdSlider.height
+
+                    DankSlider {
+                        id: connectionThresholdSlider
+                        width: parent.width
+                        minimum: -100
+                        maximum: 0
+                        step: 1
+                        unit: " dBm"
+                        value: root.connectionThresholdValue
+                        enabled: root.bridge.available && root.deviceChecked && root.connectionEnabled
+                        wheelEnabled: false
+                        onSliderValueChanged: newValue => {
+                            root.connectionThresholdValue = newValue;
+                            connectionCommitTimer.restart();
+                        }
+                        onSliderDragFinished: finalValue => {
+                            root.connectionThresholdValue = finalValue;
+                            connectionCommitTimer.stop();
+                            root.commitConnectionThreshold(finalValue);
+                        }
+                        Accessible.name: "Connection signal threshold"
+                        Accessible.description: "The active connection must meet this signal strength to count as present"
+                    }
+
+                    Rectangle {
+                        id: connectionSignalMarker
+                        width: Theme.spacingXS
+                        height: Theme.spacingL
+                        y: (parent.height - height) / 2
+                        x: {
+                            const ratio = Math.max(0, Math.min(1, (root.connectionSignalDbm - connectionThresholdSlider.minimum)
+                                / (connectionThresholdSlider.maximum - connectionThresholdSlider.minimum)));
+                            return ratio * (parent.width - width - Theme.spacingXXS) + Theme.spacingXXS / 2;
+                        }
+                        radius: width / 2
+                        color: Theme.primary
+                        visible: root.connectionSignalAvailable && root.connectionEnabled
+                            && Math.abs(root.connectionSignalDbm - root.connectionThresholdValue) > 1
+                        Accessible.ignored: true
+
+                        Behavior on x {
+                            NumberAnimation {
+                                duration: Style.mediumDuration
+                                easing.type: Style.standardEasing
+                            }
+                        }
+                    }
+                }
             }
         }
     }
