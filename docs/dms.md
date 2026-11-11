@@ -10,6 +10,7 @@ The plugin is pure QML. It talks to the daemon over session D-Bus using `busctl`
 - The `kde-bluetooth-smartlocker` daemon running in the same user session, normally `systemctl --user status kde-bluetooth-smartlocker`.
 - `busctl` (provided by systemd) on `PATH`.
 - The plugin files installed under a DMS plugin directory. The package ships them at `share/kde-bluetooth-smartlocker/dms-plugin`.
+- Host BlueZ on system D-Bus, user-session D-Bus, systemd user manager, logind/`loginctl lock-session`, and a working desktop lock screen. DMS installation also requires `busctl`.
 
 ## NixOS install
 
@@ -32,6 +33,29 @@ Import the module and leave `installDmsPlugin` at its default (`true`):
 DMS hardcodes `/etc/xdg/quickshell/dms-plugins` and does not search `XDG_CONFIG_DIRS`, so the module uses `environment.etc` to place the plugin there. If you install the same plugin through DMS's own home-manager or NixOS plugin option, set `installDmsPlugin = false` to avoid an `/etc` collision.
 
 With a manual (non-Nix) install, copy `dms-plugin/` to `~/.config/DankMaterialShell/plugins/bluetoothSmartLocker` (the per-user plugin directory) or to the system-wide directory above.
+
+## AppImage install
+
+The x86_64 AppImage bundles a Qt 6.12 daemon runtime but relies on the host for
+BlueZ and its controller, D-Bus, systemd user services, logind, and DMS. Install
+it for the detected desktop or select DMS explicitly:
+
+```sh
+./kde-bluetooth-smartlocker-*.AppImage --install
+./kde-bluetooth-smartlocker-*.AppImage --install --desktop dms
+./kde-bluetooth-smartlocker-*.AppImage --uninstall
+```
+
+It copies itself to
+`$XDG_DATA_HOME/kde-bluetooth-smartlocker/kde-bluetooth-smartlocker.AppImage`
+(normally `~/.local/share`), installs a user unit under
+`$XDG_CONFIG_HOME/systemd/user/`, and installs the widget at
+`$XDG_DATA_HOME/quickshell/dms-plugins/bluetoothSmartLocker`. The unit reads
+`%h/.config/kde-bluetooth-smartlocker/service.conf` for optional environment
+values such as `SMARTLOCKER_DEVICES`. Uninstall removes installer-owned files
+and leaves this service configuration and daemon settings in place. DMS remains
+pure QML and uses `busctl`; it does not load the native Plasma plugin and so
+does not depend on host Plasma's Qt minor version.
 
 ## Enable the plugin
 

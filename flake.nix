@@ -2,10 +2,26 @@
   description = "Lock-only Bluetooth presence daemon for desktop environments";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.nixpkgs-qt612.url = "github:NixOS/nixpkgs/4fe25e12eb9f4c744966dd3de5a05246cf098601";
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, nixpkgs-qt612 }:
     let
       forAllSystems = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ];
+      buildSource =
+        let workspaceRoot = builtins.getEnv "PWD";
+        in if workspaceRoot == "" then self else builtins.path {
+          path = workspaceRoot;
+          name = "kde-bluetooth-smartlocker-source";
+          filter = path: type:
+            !(builtins.elem (baseNameOf (toString path)) [
+              ".git"
+              ".omo"
+              ".codegraph"
+              "build"
+              "result"
+              "result-appimage"
+            ]);
+        };
 
       # Build the package against a caller-supplied nixpkgs. The NixOS module
       # passes the consuming system's `pkgs` so the native QML plugin is built
@@ -13,7 +29,7 @@
       # minor-version ABI mismatch.
       mkPackage = pkgs: pkgs.stdenv.mkDerivation {
         pname = "kde-bluetooth-smartlocker";
-        version = "0.18.0";
+        version = "0.19.0";
         src = self;
         # dbus is needed by the test suite, which runs a private message bus so BlueZ
         # signals are actually routed rather than dropped by a peer-to-peer endpoint.
@@ -52,9 +68,166 @@
         '';
       };
 
+      mkPlasmaVariant = pkgs: qtVersion: let
+        readPluginTest = file:
+          let
+            trackedFile = "${self.outPath}/${file}";
+            workspaceRoot = builtins.getEnv "PWD";
+            workspaceFile = "${workspaceRoot}/${file}";
+          in
+          if builtins.pathExists trackedFile then builtins.readFile trackedFile
+          else if workspaceRoot != "" && builtins.pathExists workspaceFile then builtins.readFile workspaceFile
+          else throw "Missing ${file} from the flake source. Track the fixture for pure evaluation, or run local evaluation with --impure from the workspace root.";
+      in pkgs.stdenv.mkDerivation {
+        pname = "kde-bluetooth-smartlocker-plasma-qt6_11";
+        version = "0.19.0";
+        src = pkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter = path: type:
+            !(builtins.elem (baseNameOf (toString path)) [
+              ".git"
+              ".omo"
+              ".codegraph"
+              "build"
+              "result"
+            ]);
+        };
+        dontWrapQtApps = true;
+        nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.patchelf ];
+        buildInputs = [ pkgs.qt6.qtbase pkgs.qt6.qtdeclarative ];
+        doCheck = true;
+        doInstallCheck = true;
+        postPatch = ''
+          cat > tests/qml-plugin-smoke.sh <<'SMARTLOCKER_QML_RUNNER'
+          ${readPluginTest "tests/qml-plugin-smoke.sh"}
+          SMARTLOCKER_QML_RUNNER
+          cat > tests/test-qml-plugin-selector.sh <<'SMARTLOCKER_QML_SELECTOR_TEST'
+          ${readPluginTest "tests/test-qml-plugin-selector.sh"}
+          SMARTLOCKER_QML_SELECTOR_TEST
+          cat > tests/qml-plugin-smoke.qml <<'SMARTLOCKER_QML_SMOKE'
+          ${readPluginTest "tests/qml-plugin-smoke.qml"}
+          SMARTLOCKER_QML_SMOKE
+        '';
+        configurePhase = ''
+          runHook preConfigure
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_INSTALL_PREFIX="$out"
+          runHook postConfigure
+        '';
+        buildPhase = ''
+          runHook preBuild
+          cmake --build build --target smartlocker-qml-plugin
+          runHook postBuild
+        '';
+        checkPhase = ''
+          runHook preCheck
+          bash tests/test-qml-plugin-selector.sh
+          runHook postCheck
+        '';
+        installPhase = ''
+          runHook preInstall
+          module="$out/lib/qt-6/qml/org/kde/smartlocker"
+          mkdir -p "$module"
+          cp build/libsmartlockerqml.so "$module/"
+          cp plasmoid/qml/org/kde/smartlocker/qmldir "$module/"
+          printf '%s\n' "${qtVersion}" > "$module/qt-version"
+          runHook postInstall
+        '';
+        postFixup = ''
+          plugin="$out/lib/qt-6/qml/org/kde/smartlocker/libsmartlockerqml.so"
+          patchelf --remove-rpath "$plugin"
+          if [ -n "$(patchelf --print-rpath "$plugin")" ]; then
+            echo "Qt plugin still has an ELF RPATH/RUNPATH" >&2
+            exit 1
+          fi
+          if patchelf --print-needed "$plugin" | grep -Fq '/nix/store/'; then
+            echo "Qt plugin has a Nix-store dynamic dependency" >&2
+            exit 1
+          fi
+        '';
+        installCheckPhase = ''
+          runHook preInstallCheck
+          bash tests/qml-plugin-smoke.sh "${qtVersion}" \
+            "$out/lib/qt-6/qml/org/kde/smartlocker" \
+            "${pkgs.qt6.qtdeclarative}/bin/qml"
+          runHook postInstallCheck
+        '';
+        passthru = {
+          inherit qtVersion;
+          qtBase = pkgs.qt6.qtbase;
+          qtDeclarative = pkgs.qt6.qtdeclarative;
+        };
+      };
+
+      mkAppImage = system:
+        let
+          appVersion = "0.19.0";
+          pkgs = import nixpkgs-qt612 { inherit system; };
+          hostPkgs = import nixpkgs { inherit system; };
+          daemon = (mkPackage pkgs).overrideAttrs (old: {
+            src = buildSource;
+            dontWrapQtApps = true;
+            nativeBuildInputs = builtins.filter (input: input != pkgs.qt6.wrapQtAppsHook) old.nativeBuildInputs;
+          });
+          linuxdeploy = pkgs.fetchurl {
+            url = "https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage";
+            hash = "sha256-wgzXHjpOO4DDSDzveTzaP06ZCsoUAU0jxUTKPOEnC00=";
+          };
+          linuxdeployQt = pkgs.fetchurl {
+            url = "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/1-alpha-20250213-1/linuxdeploy-plugin-qt-x86_64.AppImage";
+            hash = "sha256-FRBr6IXBxIoCEZjn4emkjOnQKobdChhI8Avb88HJJyQ=";
+          };
+          appimagetool = pkgs.fetchurl {
+            url = "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage";
+            hash = "sha256-7UzoTw2cr/ZvULzKb/bzWq5UzoE1QIs/ozq/w8s4TrA=";
+          };
+          appimageRuntime = pkgs.fetchurl {
+            url = "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64";
+            hash = "sha256-L8qLRDySUQ8Ug6iD9gBhrQm0a5eLJjHIB82HOkfsJg0=";
+          };
+        in pkgs.stdenvNoCC.mkDerivation {
+          pname = "kde-bluetooth-smartlocker-appimage";
+          version = appVersion;
+          src = buildSource;
+          nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.findutils pkgs.gnugrep pkgs.file pkgs.glibc.bin pkgs.patchelf ];
+          dontUnpack = true;
+          dontFixup = true;
+          buildPhase = ''
+            runHook preBuild
+            export APPIMAGE_DAEMON="${daemon}"
+            export APPIMAGE_HOST_PLUGIN="${mkPlasmaVariant hostPkgs "6.11.1"}"
+            export APPIMAGE_LINUXDEPLOY="${linuxdeploy}"
+            export APPIMAGE_QT_PLUGIN="${linuxdeployQt}"
+            export APPIMAGE_TOOL="${appimagetool}"
+            export APPIMAGE_RUNTIME="${appimageRuntime}"
+            export APPIMAGE_QMAKE="${pkgs.qt6.qtbase}/bin/qmake"
+            export APPIMAGE_ZLIB="${pkgs.zlib}/lib/libz.so.1"
+            export APPIMAGE_LIBSTDCXX="${pkgs.stdenv.cc.cc.lib}/lib/libstdc++.so.6"
+            export APPIMAGE_LIBGCC="${pkgs.stdenv.cc.cc.lib}/lib/libgcc_s.so.1"
+            export APPIMAGE_GLIBC="${pkgs.glibc}"
+            export APPIMAGE_VERSION="${appVersion}"
+            export APPIMAGE_OUT="$PWD/out"
+            bash "$src/scripts/package-appimage.sh"
+            runHook postBuild
+          '';
+          installPhase = ''
+            mkdir -p "$out"
+            cp out/*.AppImage out/*.sha256 "$out/"
+            test "$(find "$out" -maxdepth 1 -name '*.AppImage' | wc -l)" -eq 1
+          '';
+        };
+
     in {
       packages = forAllSystems (system: {
         default = mkPackage (import nixpkgs { inherit system; });
+        # Reuse the locked default package set, whose Qt 6.11.1 paths match the
+        # installed host runtime. The service/NixOS default above remains the
+        # consuming-pkgs package for system ABI compatibility.
+        plasma-qt6_11 = mkPlasmaVariant (import nixpkgs { inherit system; }) "6.11.1";
+      } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
+        appimage = mkAppImage system;
       });
 
       devShells = forAllSystems (system:
@@ -64,8 +237,12 @@
           default = pkgs.mkShell {
             packages = [
               pkgs.cmake
+              pkgs.actionlint
               pkgs.gcc
               pkgs.ninja
+              pkgs.python3Packages.pyyaml
+              pkgs.shellcheck
+              pkgs.zsh
               pkgs.qt6.qtbase
               pkgs.qt6.qtdeclarative
               pkgs.qt6.qttools

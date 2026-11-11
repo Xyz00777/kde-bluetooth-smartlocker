@@ -50,6 +50,7 @@ void BluezMonitor::onServiceUnregistered(const QString&) {
     pathConnectionStates_.clear();
     everConnected_.clear();
     lastRssi_.clear();
+    awaitingFreshRssi_.clear();
     macToPaths_.clear();
     pathToMac_.clear();
     deviceNames_.clear();
@@ -142,6 +143,7 @@ void BluezMonitor::enumerateDevices() {
         connectionStates_.remove(mac);
         everConnected_.remove(mac);
         lastRssi_.remove(mac);
+        awaitingFreshRssi_.remove(mac);
         emit deviceObserved(mac, false, 0, false);
     }
     if (!autoSelect_) {
@@ -199,10 +201,14 @@ void BluezMonitor::enumerateDevices() {
                 name = alias.isEmpty() ? properties.value("Name").toString() : alias;
             }
             const bool pathConnected = properties.value("Connected").toBool();
+            if (pathConnected && pathConnectionStates_.contains(path) && !pathConnectionStates_.value(path)) {
+                lastRssi_.remove(mac);
+                awaitingFreshRssi_.insert(mac);
+            }
             pathConnectionStates_.insert(path, pathConnected);
             if (pathConnected) {
                 connected = true;
-                if (!hasRssi && properties.contains("RSSI")) {
+                if (!hasRssi && properties.contains("RSSI") && !awaitingFreshRssi_.contains(mac)) {
                     hasRssi = true;
                     rssiDbm = properties.value("RSSI").toInt();
                 }
@@ -225,11 +231,12 @@ void BluezMonitor::enumerateDevices() {
         // snapshot as a fresh sample each time, collapsing the averaging window.
         const bool isNew = !connectionStates_.contains(mac);
         const bool presenceChanged = isNew || connectionStates_.value(mac) != connected;
-        const bool rssiChanged = connected && (isNew || lastRssi_.contains(mac) != hasRssi || (hasRssi && lastRssi_.value(mac) != rssiDbm));
+        const bool hasCachedRssi = lastRssi_.contains(mac);
+        const bool rssiChanged = connected && (isNew || hasCachedRssi != hasRssi || (hasRssi && lastRssi_.value(mac) != rssiDbm));
         connectionStates_.insert(mac, connected);
         if (connected && hasRssi) {
             lastRssi_.insert(mac, rssiDbm);
-        } else if (connected) {
+        } else if (connected && !awaitingFreshRssi_.contains(mac)) {
             // A device that stops reporting RSSI must not leave a cached reading behind,
             // both for change detection and because stale RSSI must never imply presence.
             lastRssi_.remove(mac);
@@ -280,6 +287,17 @@ void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantM
         enumerateDevices();
         return;
     }
+    const QString mac = macIt.value();
+    const auto connected = changed.constFind("Connected");
+    const auto rssi = changed.constFind("RSSI");
+    if (connected != changed.cend()) {
+        pathConnectionStates_.insert(path, connected->toBool());
+        if (connected->toBool()) {
+            everConnected_.insert(mac, true);
+            lastRssi_.remove(mac);
+            awaitingFreshRssi_.insert(mac);
+        }
+    }
     if (changed.contains("Address") || changed.contains("Paired") || changed.contains("Trusted")
         || changed.contains("Name") || changed.contains("Alias")
         || invalidated.contains("Address") || invalidated.contains("Paired") || invalidated.contains("Trusted")
@@ -288,18 +306,8 @@ void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantM
         enumerateDevices();
         return;
     }
-    const QString mac = macIt.value();
-    const auto connected = changed.constFind("Connected");
-    const auto rssi = changed.constFind("RSSI");
     if (connected == changed.cend() && rssi == changed.cend()) {
         return;
-    }
-    if (connected != changed.cend()) {
-        pathConnectionStates_.insert(path, connected->toBool());
-        if (connected->toBool()) {
-            everConnected_.insert(mac, true);
-            lastRssi_.remove(mac);
-        }
     }
     const bool isConnected = macConnected(mac);
     connectionStates_.insert(mac, isConnected);
@@ -308,6 +316,7 @@ void BluezMonitor::onPropertiesChanged(const QString& interface, const QVariantM
     const bool pathConnected = pathConnectionStates_.value(path, false);
     if (rssi != changed.cend() && (pathConnected || !isConnected)) {
         lastRssi_.insert(mac, rssi->toInt());
+        awaitingFreshRssi_.remove(mac);
         emit deviceObserved(mac, isConnected, rssi->toInt(), true);
     } else {
         if (everConnected_.value(mac, false) && !isConnected) {
@@ -352,6 +361,7 @@ void BluezMonitor::onInterfacesRemoved(const QDBusObjectPath& path, const QStrin
         connectionStates_.remove(mac);
         everConnected_.remove(mac);
         lastRssi_.remove(mac);
+        awaitingFreshRssi_.remove(mac);
         emit deviceObserved(mac, false, 0, false);
     }
     // When another path for the same address survives, presence is the union over the

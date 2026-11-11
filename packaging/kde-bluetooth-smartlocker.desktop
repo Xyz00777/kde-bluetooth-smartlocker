@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Bluetooth SmartLocker
+Comment=Lock the session when configured Bluetooth devices are absent
+Exec=AppRun
+Icon=kde-bluetooth-smartlocker
+Type=Application
+Categories=Utility;Security;
+Terminal=true

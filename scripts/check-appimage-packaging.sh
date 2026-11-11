@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+script="$root/scripts/package-appimage.sh"
+installer="$root/scripts/install-appimage.sh"
+flake="$root/flake.nix"
+elf_checker="$root/scripts/check-appimage-elf.sh"
+elf_test="$root/scripts/check-appimage-elf-test.sh"
+
+bash -n "$script"
+grep -Fq 'APPIMAGE_EXTRACT_AND_RUN=1' "$script"
+grep -Fq 'sha256sum --check' "$script"
+grep -Fq 'check-appimage-elf.sh' "$script"
+grep -Fq 'patchelf --print-rpath' "$elf_checker"
+grep -Fq 'patchelf --print-needed' "$elf_checker"
+grep -Fq 'patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2' "$script"
+grep -Fq 'usr/lib/glibc/ld-linux-x86-64.so.2' "$script"
+grep -Fq "\"\$appdir/AppRun\" --version" "$script"
+grep -Fq "\"\$appdir/AppRun\" --help" "$script"
+grep -Fq 'libstdc++.so.6' "$script"
+grep -Fq 'ldd ' "$elf_checker"
+grep -Fq 'version .* not found' "$elf_checker"
+grep -Fq "host_plugin=\"\$appdir/usr/share/kde-bluetooth-smartlocker/plasma-qt6_11\"" "$elf_checker"
+grep -Fq "\"\$host_plugin/\"*) continue ;;" "$elf_checker"
+grep -Fq 'check-appimage-elf-test.sh' "$0"
+bash "$elf_test"
+grep -Fq 'qt-version' "$script"
+grep -Fq '6.11.1' "$script"
+grep -Fq 'APPIMAGE_TOOL' "$script"
+grep -Fq 'ARCH=x86_64 VERSION=' "$script"
+grep -Fq 'nixpkgs-qt612.url = "github:NixOS/nixpkgs/4fe25e12eb9f4c744966dd3de5a05246cf098601"' "$flake"
+grep -Fq 'sha256-wgzXHjpOO4DDSDzveTzaP06ZCsoUAU0jxUTKPOEnC00=' "$flake"
+grep -Fq 'sha256-FRBr6IXBxIoCEZjn4emkjOnQKobdChhI8Avb88HJJyQ=' "$flake"
+grep -Fq 'sha256-7UzoTw2cr/ZvULzKb/bzWq5UzoE1QIs/ozq/w8s4TrA=' "$flake"
+grep -Fq 'sha256-L8qLRDySUQ8Ug6iD9gBhrQm0a5eLJjHIB82HOkfsJg0=' "$flake"
+grep -Fq 'install-appimage.sh' "$script"
+grep -Fq 'kde-bluetooth-smartlocker.service' "$installer"
+
+for asset in kde-bluetooth-smartlocker.desktop kde-bluetooth-smartlocker.svg; do
+    test -s "$root/packaging/$asset"
+done
