@@ -3,6 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 script="$root/scripts/package-appimage.sh"
+installer="$root/scripts/install-appimage.sh"
 flake="$root/flake.nix"
 elf_checker="$root/scripts/check-appimage-elf.sh"
 elf_test="$root/scripts/check-appimage-elf-test.sh"
@@ -34,7 +35,7 @@ grep -Fq 'sha256-FRBr6IXBxIoCEZjn4emkjOnQKobdChhI8Avb88HJJyQ=' "$flake"
 grep -Fq 'sha256-7UzoTw2cr/ZvULzKb/bzWq5UzoE1QIs/ozq/w8s4TrA=' "$flake"
 grep -Fq 'sha256-L8qLRDySUQ8Ug6iD9gBhrQm0a5eLJjHIB82HOkfsJg0=' "$flake"
 grep -Fq 'install-appimage.sh' "$script"
-grep -Fq 'kde-bluetooth-smartlocker.service' "$script"
+grep -Fq 'kde-bluetooth-smartlocker.service' "$installer"
 
 for asset in kde-bluetooth-smartlocker.desktop kde-bluetooth-smartlocker.svg; do
     test -s "$root/packaging/$asset"
