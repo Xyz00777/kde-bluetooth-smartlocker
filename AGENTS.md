@@ -18,7 +18,7 @@ kde-bluetooth-smartlocker/
 ├── docs/           # integration guides (quickshell.md, dms.md)
 ├── tests/          # single custom-harness test executable
 ├── systemd/        # user-service template (CMake-configured)
-├── scripts/        # version-consistency checker
+├── scripts/        # version, documentation, release, and packaging checks
 ├── flake.nix       # Nix package + dev shell + inline NixOS module
 └── CMakeLists.txt  # sole build definition (no per-dir CMake)
 ```
@@ -55,7 +55,9 @@ kde-bluetooth-smartlocker/
 - **Flat `src/`** — no per-module subdirs; headers under `include/smartlocker/` mirror `src/` 1:1.
 - **Three frontends over one daemon**, not one GUI app: headless daemon (`main.cpp`, systemd) + Plasma QML frontend (`main.qml` via `SmartLockerClient`) + pure-QML DMS plugin (`dms-plugin/`, D-Bus via `busctl`, no native module).
 - **Version defined in 5 places** that must stay in sync: `CMakeLists.txt`, `flake.nix`, `src/main.cpp`, `plasmoid/metadata.json`, `dms-plugin/plugin.json`. Checked by `scripts/check-version.sh`, wired as `.githooks/pre-commit` (opt-in per clone via `git config core.hooksPath .githooks`); CI runs the same checker on every push and pull request.
-- **Every change bumps the version** — no change lands without a version increase. Features/behavior changes → minor bump (`0.13.2` → `0.14.0`); bugfixes → patch bump (`0.13.2` → `0.13.3`). Bump all 5 places in the same commit.
+- **Release policy** — software/package changes require a strictly higher SemVer version and a `CHANGELOG.md` entry headed `## <version>`; update all 5 version sources together. Docs/Markdown, CI, tests, hooks, and checker-only changes are exempt when they are the only changes. Mixed software plus docs/CI changes require both the version increase and changelog entry. Keep changelog headings as `## 0.19.0` and put the release summary beneath that heading.
+- **AppImage platform boundary** — the daemon's bundled runtime is Qt 6.12; the only supported host Plasma native plugin is Qt 6.11.1. DMS uses a pure-QML plugin. The AppImage relies on host BlueZ, D-Bus, logind/`loginctl`, systemd user services, and a supported graphical shell/lock screen.
+- **Required CI check** — branch protection must require `CI / required-checks`. A GitHub Actions workflow cannot configure branch protection; a repository administrator must enable the rule in GitHub settings. Real Bluetooth hardware and real desktop/session lock verification remain deployment-only checks.
 - `Q_LOGGING_CATEGORY` under `org.kde.smartlocker` for daemon, `org.kde.smartlocker.main` for main.
 
 ## ANTI-PATTERNS (THIS PROJECT)
@@ -92,6 +94,10 @@ nix develop
 
 # Version consistency check
 ./scripts/check-version.sh
+
+# Documentation inventory and policy checks
+bash scripts/check-documentation.sh build/kde-bluetooth-smartlocker
+bash scripts/test-documentation-checker.sh build/kde-bluetooth-smartlocker
 ```
 
 ## NOTES

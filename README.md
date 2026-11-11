@@ -92,6 +92,33 @@ dms ipc call plugins enable bluetoothSmartLocker
 
 See [DMS Integration](docs/dms.md) for behavior, settings, and troubleshooting.
 
+## AppImage installation
+
+The x86_64 AppImage includes the daemon and its Qt 6.12 runtime. It still
+requires host systemd/D-Bus, BlueZ, logind, and a supported graphical desktop
+session; it does not include a Bluetooth controller or desktop shell. From the
+downloaded AppImage, install for the detected desktop or select one explicitly:
+
+```sh
+./kde-bluetooth-smartlocker-*.AppImage --install
+./kde-bluetooth-smartlocker-*.AppImage --install --desktop dms
+./kde-bluetooth-smartlocker-*.AppImage --install --desktop plasma
+./kde-bluetooth-smartlocker-*.AppImage --uninstall
+```
+
+Installation is per-user. The AppImage is copied to
+`$XDG_DATA_HOME/kde-bluetooth-smartlocker/kde-bluetooth-smartlocker.AppImage`
+(default `~/.local/share`), and the user unit is installed under
+`$XDG_CONFIG_HOME/systemd/user/` (default `~/.config/systemd/user/`). The
+optional `%h/.config/kde-bluetooth-smartlocker/service.conf` supplies service
+environment such as `SMARTLOCKER_DEVICES`; settings remain under
+`~/.config/kde-bluetooth-smartlocker/` and are preserved when uninstalling.
+DMS uses a pure-QML plugin. Plasma is supported only with host Qt 6.11.1; its
+native plugin is separate from the AppImage's Qt 6.12 daemon runtime. After
+installing Plasma integration, restart Plasma or log out and back in so its QML
+import path is loaded. See [Options and integration reference](docs/options.md)
+for paths, requirements, and contributor release policy.
+
 ## Quickshell
 
 The native QML extension plugin `org.kde.smartlocker` only depends on Qt 6 Core, DBus, and Qml, making it directly usable in [Quickshell](https://outfoxxed.me/quickshell/) without any KDE Frameworks or Plasma dependencies. Because it is a native plugin, it must be built with the same Qt minor version as the Quickshell build. DankMaterialShell users should use the DMS plugin above instead, which avoids that constraint.
@@ -127,6 +154,17 @@ journalctl --user -u kde-bluetooth-smartlocker -f
 The daemon logs lock-command failures, invalid startup paths, and duplicate devices through the `org.kde.smartlocker` logging categories.
 
 ## Development
+
+### Releases and required CI check
+
+Software or package changes require a strictly higher SemVer version and a
+`CHANGELOG.md` entry headed `## <version>` (for example, `## 0.19.0`) with the
+release summary beneath it. Documentation-only and CI-only changes are exempt;
+mixed software plus documentation/CI changes require both the version increase
+and changelog entry. For branch protection, repository administrators must
+manually require **`CI / required-checks`**. Workflows cannot enable branch
+protection. Real Bluetooth hardware and desktop/session lock behavior remain
+deployment-only verification, not CI coverage.
 
 ### Version consistency hook
 

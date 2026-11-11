@@ -6,6 +6,27 @@ Because the daemon communicates over session D-Bus and the native QML extension 
 
 This guide covers the **generic Quickshell** integration. `org.kde.smartlocker` is a native QML plugin, so the copy you import must be built with the same Qt minor version as the Quickshell build; mixing Qt minor versions can fail to load the module. If you use **DankMaterialShell (DMS)**, use the dedicated [DMS plugin](dms.md) instead: it is pure QML, talks to the daemon over D-Bus, and does not depend on the native module.
 
+## AppImage Plasma integration and host boundary
+
+The x86_64 AppImage's daemon runs with its bundled Qt 6.12 runtime. This is
+separate from the native Plasma plugin, which supports **host Plasma/Qt 6.11.1
+only**. Do not import the host plugin into a different Qt minor runtime. The
+AppImage requires host BlueZ and a Bluetooth controller, session and system
+D-Bus, a systemd user manager, logind with `loginctl lock-session`, and a
+working graphical session/lock screen. It does not bundle those host services
+or the Quickshell/DMS/Plasma shell.
+
+For packaged Plasma use, run the AppImage installer with `--install
+[--desktop auto|dms|plasma]`; remove it with `--uninstall`. It places the
+AppImage under `$XDG_DATA_HOME/kde-bluetooth-smartlocker/`, creates the user
+service at `$XDG_CONFIG_HOME/systemd/user/kde-bluetooth-smartlocker.service`,
+and reads optional service environment assignments from
+`%h/.config/kde-bluetooth-smartlocker/service.conf`. Plasma files and its Qt
+6.11.1 module are installed under the user's XDG data paths. The installer
+configures a Plasma QML import environment script; restart Plasma or log out and
+back in before expecting that import path to be active. For DMS, use its pure-
+QML plugin rather than loading a native Qt plugin; see [DMS Integration](dms.md).
+
 ## 1. Running the Example Configuration
 
 An example standalone floating window configuration is provided at [`examples/quickshell/shell.qml`](../examples/quickshell/shell.qml).
