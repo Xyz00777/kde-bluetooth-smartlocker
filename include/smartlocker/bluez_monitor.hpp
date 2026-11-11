@@ -43,6 +43,7 @@ private:
     QMap<QString, bool> pathConnectionStates_;
     QMap<QString, bool> everConnected_;
     QMap<QString, int> lastRssi_;
+    QSet<QString> awaitingFreshRssi_;
     QMap<QString, QStringList> macToPaths_;
     QMap<QString, QString> pathToMac_;
     QMap<QString, QString> deviceNames_;

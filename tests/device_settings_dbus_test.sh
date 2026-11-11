@@ -1,105 +1,117 @@
 #!/bin/sh
 set -eu
 
-if [ "${1:-}" != --session ]; then
-    daemon=$1
-    work=$(mktemp -d)
-    trap 'rm -rf "$work"' EXIT
-    mkdir -p "$work/config/kde-bluetooth-smartlocker"
-    cat > "$work/config/kde-bluetooth-smartlocker/daemon.conf" <<'EOF'
-[devices]
-AA%3ABB%3ACC%3ADD%3AEE%3AFF\rssiThreshold=-55
-EOF
-    dbus-run-session -- sh "$0" --session "$daemon" "$work"
-    exit $?
-fi
-
-shift
+# Both buses, the fake logind/BlueZ services, settings, and lock recorder are private to
+# this invocation. In particular, never inherit the host's session identity or system bus.
 daemon=$1
-work=$2
+fake_services=$2
+work=$(mktemp -d "${TMPDIR:-/tmp}/smartlocker-settings.XXXXXX")
+bus_pid=""
+session_pid=""
+system_pid=""
+fake_pid=""
 daemon_pid=""
 cleanup() {
-    if [ -n "$daemon_pid" ]; then
-        kill "$daemon_pid" 2>/dev/null || true
-        wait "$daemon_pid" 2>/dev/null || true
-    fi
+    for pid in "$daemon_pid" "$fake_pid" "$bus_pid" "$session_pid" "$system_pid"; do
+        if [ -n "$pid" ]; then
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+        fi
+    done
+    rm -rf "$work"
 }
-trap cleanup EXIT
+trap cleanup EXIT HUP INT TERM
+
+start_bus() {
+    name=$1
+    address=""
+    cat > "$work/$name.conf" <<EOF
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth><allow_anonymous/>
+<policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/></policy></busconfig>
+EOF
+    : > "$work/$name.addr"
+    dbus-daemon --config-file="$work/$name.conf" --nofork --print-address >"$work/$name.addr" 2>"$work/$name.err" &
+    bus_pid=$!
+    attempt=0
+    while [ "$attempt" -lt 100 ]; do
+        IFS= read -r address < "$work/$name.addr" || true
+        [ -n "${address:-}" ] && return
+        if ! kill -0 "$bus_pid" 2>/dev/null; then cat "$work/$name.err" >&2; exit 1; fi
+        attempt=$((attempt + 1))
+        sleep 0.05
+    done
+    echo "private $name bus did not publish an address" >&2
+    exit 1
+}
+
+mkdir -p "$work/home"
+: > "$work/locks"
+start_bus session
+session_address=$address
+session_pid=$bus_pid
+start_bus system
+system_address=$address
+system_pid=$bus_pid
+bus_pid=""
+
+DBUS_SYSTEM_BUS_ADDRESS="$system_address" "$fake_services" "$work" >"$work/fakes.log" 2>&1 &
+fake_pid=$!
+attempt=0
+while [ "$attempt" -lt 100 ]; do
+    names=$(timeout 1 busctl --address="$system_address" call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ListNames 2>/dev/null || true)
+    case "$names" in *org.freedesktop.login1*org.bluez*|*org.bluez*org.freedesktop.login1*) break ;; esac
+    kill -0 "$fake_pid" 2>/dev/null || { cat "$work/fakes.log" >&2; exit 1; }
+    attempt=$((attempt + 1)); sleep 0.05
+done
+[ "$attempt" -lt 100 ] || { echo "fake system services did not start" >&2; exit 1; }
+
+export DBUS_SESSION_BUS_ADDRESS="$session_address"
+export DBUS_SYSTEM_BUS_ADDRESS="$system_address"
+export HOME="$work/home"
+export XDG_CONFIG_HOME="$work/config"
+export XDG_DATA_HOME="$work/data"
+export XDG_STATE_HOME="$work/state"
+export SMARTLOCKER_LOCK_RECORD="$work/locks"
 
 start_daemon() {
-    XDG_CONFIG_HOME="$work/config" \
-    XDG_DATA_HOME="$work/data" \
-    XDG_STATE_HOME="$work/state" \
-        "$daemon" --device AA:BB:CC:DD:EE:FF --lock-command /bin/true >"$work/daemon.log" 2>&1 &
+    "$daemon" --device AA:BB:CC:DD:EE:FF --lock-command "$work/record-lock" >"$work/daemon.log" 2>&1 &
     daemon_pid=$!
     attempt=0
-    while [ "$attempt" -lt 50 ]; do
-        if busctl --address="$DBUS_SESSION_BUS_ADDRESS" list | grep -q org.kde.SmartLocker1; then
-            break
-        fi
-        if ! kill -0 "$daemon_pid" 2>/dev/null; then
-            cat "$work/daemon.log" >&2
-            exit 1
-        fi
-        attempt=$((attempt + 1))
-        sleep 0.1
+    while [ "$attempt" -lt 100 ]; do
+        busctl --address="$session_address" list 2>/dev/null | grep -q org.kde.SmartLocker1 && return
+        kill -0 "$daemon_pid" 2>/dev/null || { cat "$work/daemon.log" >&2; exit 1; }
+        attempt=$((attempt + 1)); sleep 0.05
     done
-    if [ "$attempt" -eq 50 ]; then
-        cat "$work/daemon.log" >&2
-        exit 1
-    fi
+    cat "$work/daemon.log" >&2
+    echo "daemon did not register on isolated session bus" >&2
+    exit 1
 }
+cat > "$work/record-lock" <<'EOF'
+#!/bin/sh
+printf 'lock\n' >> "$SMARTLOCKER_LOCK_RECORD"
+EOF
+chmod +x "$work/record-lock"
 
-session_id=${XDG_SESSION_ID:-}
-[ -n "$session_id" ] || exit 77
-session_reply=$(busctl --system call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager GetSession s "$session_id" 2>/dev/null) || exit 77
-session_path=${session_reply#*\"}
-session_path=${session_path%%\"*}
-[ -n "$session_path" ] || exit 77
-active=$(busctl --system get-property org.freedesktop.login1 "$session_path" org.freedesktop.login1.Session Active 2>/dev/null) || exit 77
-locked_hint=$(busctl --system get-property org.freedesktop.login1 "$session_path" org.freedesktop.login1.Session LockedHint 2>/dev/null) || exit 77
-session_state=$(busctl --system get-property org.freedesktop.login1 "$session_path" org.freedesktop.login1.Session State 2>/dev/null) || exit 77
-case "$active:$locked_hint:$session_state" in
-    *"b true:b false:s \"locking\""*|*"b true:b false:s \"locked\""*) exit 77 ;;
-esac
-case "$active:$locked_hint" in
-    "b true:b false") ;;
-    *) exit 77 ;;
-esac
-
+set_session() {
+    busctl --address="$system_address" call org.freedesktop.login1 /org/kde/SmartLockerTest org.kde.SmartLockerTest SetSessionState sb "$1" "$2" >/dev/null
+}
+set_session active true
 start_daemon
-settings=$(busctl --address="$DBUS_SESSION_BUS_ADDRESS" --json=short call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 DeviceSettings)
-case "$settings" in *'"rssiThreshold":{"type":"i","data":-55}'*) ;; *) exit 1 ;; esac
-case "$settings" in *'"connectionRssiThreshold":{"type":"i","data":-55}'*) ;; *) exit 1 ;; esac
-connection_threshold_method=$(busctl --address="$DBUS_SESSION_BUS_ADDRESS" introspect org.kde.SmartLocker1 /SmartLocker | grep SetDeviceConnectionRssiThreshold)
-case "$connection_threshold_method" in *"si"*"b"*) ;; *) exit 1 ;; esac
-kill "$daemon_pid"
-wait "$daemon_pid" 2>/dev/null || true
+busctl --address="$session_address" call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 SetDeviceBleEnabled sb AA:BB:CC:DD:EE:FF false >/dev/null
+busctl --address="$session_address" call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 SetDeviceConnectionEnabled sb AA:BB:CC:DD:EE:FF false >/dev/null
+busctl --address="$session_address" call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 SetDeviceRssiThreshold si AA:BB:CC:DD:EE:FF -- -45 >/dev/null
+busctl --address="$session_address" call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 SetDeviceConnectionRssiThreshold si AA:BB:CC:DD:EE:FF -- -65 >/dev/null
+set_session closing false
+kill "$daemon_pid"; wait "$daemon_pid" 2>/dev/null || true; daemon_pid=""
+set_session active true
 start_daemon
-settings=$(busctl --address="$DBUS_SESSION_BUS_ADDRESS" --json=short call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 DeviceSettings)
-case "$settings" in *'"rssiThreshold":{"type":"i","data":-55}'*) ;; *) exit 1 ;; esac
-case "$settings" in *'"connectionRssiThreshold":{"type":"i","data":-55}'*) ;; *) exit 1 ;; esac
-ble_result=$(busctl --address="$DBUS_SESSION_BUS_ADDRESS" call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 SetDeviceBleEnabled sb AA:BB:CC:DD:EE:FF false)
-connection_result=$(busctl --address="$DBUS_SESSION_BUS_ADDRESS" call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 SetDeviceConnectionEnabled sb AA:BB:CC:DD:EE:FF false)
-connection_threshold_result=$(busctl --address="$DBUS_SESSION_BUS_ADDRESS" call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 SetDeviceConnectionRssiThreshold si AA:BB:CC:DD:EE:FF -- -65)
-ble_threshold_result=$(busctl --address="$DBUS_SESSION_BUS_ADDRESS" call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 SetDeviceRssiThreshold si AA:BB:CC:DD:EE:FF -- -45)
-case "$ble_result:$connection_result:$connection_threshold_result:$ble_threshold_result" in
-    "b true:b true:b true:b true") ;;
-    *) exit 1 ;;
-esac
-settings=$(busctl --address="$DBUS_SESSION_BUS_ADDRESS" --json=short call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 DeviceSettings)
-case "$settings" in *'"bleEnabled":{"type":"b","data":false}'*) ;; *) exit 1 ;; esac
-case "$settings" in *'"connectionEnabled":{"type":"b","data":false}'*) ;; *) exit 1 ;; esac
-case "$settings" in *'"connectionRssiThreshold":{"type":"i","data":-65}'*) ;; *) exit 1 ;; esac
-case "$settings" in *'"rssiThreshold":{"type":"i","data":-45}'*) ;; *) exit 1 ;; esac
-case "$settings" in *'"bleRssiAvailable":{"type":"b","data":'*) ;; *) exit 1 ;; esac
-case "$settings" in *'"connectionRssiAvailable":{"type":"b","data":'*) ;; *) exit 1 ;; esac
-
-kill "$daemon_pid"
-wait "$daemon_pid" 2>/dev/null || true
-start_daemon
-settings=$(busctl --address="$DBUS_SESSION_BUS_ADDRESS" --json=short call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 DeviceSettings)
-case "$settings" in *'"bleEnabled":{"type":"b","data":false}'*) ;; *) exit 1 ;; esac
-case "$settings" in *'"connectionEnabled":{"type":"b","data":false}'*) ;; *) exit 1 ;; esac
-case "$settings" in *'"connectionRssiThreshold":{"type":"i","data":-65}'*) ;; *) exit 1 ;; esac
-case "$settings" in *'"rssiThreshold":{"type":"i","data":-45}'*) ;; *) exit 1 ;; esac
+settings=$(busctl --address="$session_address" --json=short call org.kde.SmartLocker1 /SmartLocker org.kde.SmartLocker1 DeviceSettings)
+for expected in '"bleEnabled":{"type":"b","data":false}' '"connectionEnabled":{"type":"b","data":false}' '"rssiThreshold":{"type":"i","data":-45}' '"connectionRssiThreshold":{"type":"i","data":-65}'; do
+    case "$settings" in *"$expected"*) ;; *) echo "persisted setting missing ($expected): $settings" >&2; exit 1 ;; esac
+done
+[ "$(wc -l < "$work/locks")" -eq 0 ] || { echo "lock recorder was unexpectedly invoked" >&2; exit 1; }
+calls=$(busctl --address="$system_address" call org.freedesktop.login1 /org/kde/SmartLockerTest org.kde.SmartLockerTest Requests)
+case "$calls" in 'u 0') echo "daemon never contacted private system bus" >&2; exit 1 ;; esac
+printf 'isolated buses served logind/BlueZ; requests=%s; settings=%s; lock calls=0\n' "$calls" "$settings"

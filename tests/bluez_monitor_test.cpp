@@ -377,14 +377,19 @@ int main(int argc, char* argv[]) {
     check(waitForObservation(observed, kMac, false), "disconnected single path before the signal test");
     observed.clear();
     emitChanged(fakeProperties, {{QStringLiteral("Connected"), true}, {QStringLiteral("RSSI"), -61}});
-    check(waitForObservation(observed, kMac, true), "PropertiesChanged applies Connected");
+    check(waitForRssiObservation(observed, kMac, true, -61), "PropertiesChanged delivers the RSSI reading for a connected path");
+    bool sawConnected = false;
     bool sawRssi = false;
     for (const QList<QVariant>& call : observed) {
+        if (call.at(0).toString() == kMac && call.at(1).toBool()) {
+            sawConnected = true;
+        }
         if (call.at(3).toBool()) {
             sawRssi = true;
             check(call.at(2).toInt() == -61, "the reported RSSI value is the one that arrived");
         }
     }
+    check(sawConnected, "PropertiesChanged applies Connected");
     check(sawRssi, "PropertiesChanged delivers the RSSI reading for a connected path");
 
     // A fresh RSSI property update while disconnected is an advertisement reading, not the
@@ -394,7 +399,7 @@ int main(int argc, char* argv[]) {
     check(waitForObservation(observed, kMac, false), "PropertiesChanged applies disconnect");
     observed.clear();
     emitChanged(fakeProperties, {{QStringLiteral("RSSI"), -42}});
-    check(waitForObservation(observed, kMac, false), "fresh disconnected BLE RSSI is reported");
+    check(waitForRssiObservation(observed, kMac, false, -42), "fresh disconnected BLE RSSI is reported");
     bool sawBleRssi = false;
     for (const QList<QVariant>& call : observed) {
         if (call.at(3).toBool() && call.at(2).toInt() == -42) sawBleRssi = true;
@@ -453,9 +458,8 @@ int main(int argc, char* argv[]) {
                               Q_ARG(QStringList, QStringList{QStringLiteral("org.bluez.Device1")}));
     check(waitForObservation(observed, kMac, false), "removing the last path reports absence");
 
-    // A reconnect that reports Connected without RSSI must not leave a stale cached reading
-    // behind, otherwise an enumeration restoring the SAME value would look unchanged and the
-    // daemon would never learn RSSI is available again.
+    // A reconnect that reports Connected without RSSI leaves BlueZ's retained RSSI in the
+    // ObjectManager snapshot. That snapshot is stale until RSSI itself changes explicitly.
     observed.clear();
     publish(fake, singleDevice(deviceProperties(true, -55, QStringLiteral("Cycle"))));
     check(waitForObservation(observed, kMac, true), "device present with RSSI before the cycle");
@@ -465,9 +469,21 @@ int main(int argc, char* argv[]) {
     observed.clear();
     emitChanged(fakeProperties, {{QStringLiteral("Connected"), true}});
     check(waitForObservation(observed, kMac, true), "reconnect observed");
+    for (const QList<QVariant>& call : observed) {
+        check(!call.at(3).toBool(), "Connected=true without RSSI is not a fresh RSSI event");
+    }
     observed.clear();
     publish(fake, singleDevice(deviceProperties(true, -55, QStringLiteral("Cycle"))));
-    check(waitForRssiObservation(observed, kMac, true, -55), "restored RSSI is re-reported after a reconnect");
+    spinFor(150);
+    bool retainedRssiReported = false;
+    for (const QList<QVariant>& call : observed) {
+        if (call.at(3).toBool()) {
+            retainedRssiReported = true;
+        }
+    }
+    check(!retainedRssiReported, "retained same-valued RSSI snapshot is not fresh after reconnect");
+    emitChanged(fakeProperties, {{QStringLiteral("RSSI"), -55}});
+    check(waitForRssiObservation(observed, kMac, true, -55), "explicit same-valued RSSI event is fresh after reconnect");
     bool rssiRestored = false;
     for (const QList<QVariant>& call : observed) {
         if (call.at(3).toBool()) {
@@ -475,7 +491,10 @@ int main(int argc, char* argv[]) {
             check(call.at(2).toInt() == -55, "the restored RSSI value is correct");
         }
     }
-    check(rssiRestored, "an unchanged RSSI value is still reported after a disconnect cycle");
+    check(rssiRestored, "an explicit same-valued RSSI event is still reported after a disconnect cycle");
+    observed.clear();
+    emitChanged(fakeProperties, {{QStringLiteral("RSSI"), -101}});
+    check(waitForRssiObservation(observed, kMac, true, -101), "explicit RSSI value -101 is reported as measurement data");
 
     // InterfacesAdded discovers a device that appears.
     observed.clear();
