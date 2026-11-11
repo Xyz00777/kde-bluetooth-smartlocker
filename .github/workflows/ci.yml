@@ -2,15 +2,131 @@ name: CI
 
 on:
   push:
+    branches: ['**']
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
+  checkout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+  release-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Check required comparison history
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            git cat-file -e "${PR_BASE}^{commit}" || { echo "required PR base unavailable" >&2; exit 1; }
+          elif [[ "$EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main && "$PUSH_BEFORE" != 0000000000000000000000000000000000000000 && -n "$PUSH_BEFORE" ]]; then
+            git cat-file -e "${PUSH_BEFORE}^{commit}" || { echo "required push before unavailable" >&2; exit 1; }
+          fi
+      - name: Enforce release metadata
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=$(git merge-base "$PR_BASE" HEAD)
+            ./scripts/check-release-policy.sh "$base"
+          elif [[ "$EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main && "$PUSH_BEFORE" != 0000000000000000000000000000000000000000 && -n "$PUSH_BEFORE" ]]; then
+            ./scripts/check-release-policy.sh "$PUSH_BEFORE"
+          else
+            ./scripts/check-version.sh
+          fi
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72 # v30
+      - run: >-
+          nix develop --command sh -c 'actionlint .github/workflows/ci.yml &&
+          shellcheck scripts/*.sh tests/*.sh &&
+          bash -n completions/bash/kde-bluetooth-smartlocker &&
+          zsh -n completions/zsh/_kde-bluetooth-smartlocker'
+      - run: bash scripts/check-release-policy-test.sh
+      - run: nix develop --command bash scripts/test-workflow-release.sh
+      - run: nix build .# --print-build-logs --out-link "$RUNNER_TEMP/smartlocker-docs"
+      - run: bash scripts/check-documentation.sh "$RUNNER_TEMP/smartlocker-docs/bin/kde-bluetooth-smartlocker"
+
   nix:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v30
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          github_access_token: ${{ secrets.GITHUB_TOKEN }}
-      - run: ./scripts/check-version.sh
-      - run: nix build .# --no-link
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72 # v30
+      - run: nix build .# --no-link --print-build-logs
+
+  appimage-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72 # v30
+      - run: nix build .#appimage --no-link --print-build-logs
+      - run: bash scripts/check-appimage-packaging.sh
+
+  required-checks:
+    name: required-checks
+    if: always()
+    needs: [checkout, release-policy, lint, nix, appimage-validation]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Require every validation job to pass
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: scripts/require-checks.sh "$RESULTS"
+
+  main-artifact:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [required-checks]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: cachix/install-nix-action@08dcb3a5e62fa31e2da3d490afc4176ef55ecd72 # v30
+      - run: nix build .#appimage --print-build-logs --out-link result-appimage
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kde-bluetooth-smartlocker-appimage-${{ github.sha }}
+          path: |
+            result-appimage/*.AppImage
+            result-appimage/*.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [required-checks, main-artifact]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: kde-bluetooth-smartlocker-appimage-${{ github.sha }}
+          path: release-assets
+      - name: Publish only a new software version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: scripts/publish-release.sh "$PUSH_BEFORE" release-assets
